@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Коровы-агенты — карточная игра</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <h1>🐮 Коровы-агенты</h1>
+    <div id="status-bar">
+      <span id="round-info"></span>
+      <span id="turn-info"></span>
+    </div>
+    <button id="exit-btn" class="btn secondary hidden">⌂ В меню</button>
+  </header>
+
+  <section id="menu-screen" class="hidden">
+    <div class="menu-top">
+      <div class="menu-actions">
+        <button id="solo-btn" class="btn primary">🤖 Одиночная игра</button>
+        <button id="net-btn" class="btn primary">🌐 Сетевая игра</button>
+      </div>
+      <button id="settings-btn" class="icon-btn" title="Имя и настройки">⚙️</button>
+    </div>
+    <div id="settings-panel" class="menu-rooms hidden">
+      <label class="menu-name">Ваше имя
+        <input id="mp-name" maxlength="16" placeholder="Агент 🐮">
+      </label>
+      <div class="lobby-actions">
+        <button id="settings-done" class="btn secondary">Готово</button>
+      </div>
+    </div>
+    <div id="net-panel" class="menu-rooms hidden">
+      <p class="net-label">Сколько игроков в вашей комнате?</p>
+      <div class="count-row">
+        <button class="btn count-btn" data-max="2">2</button>
+        <button class="btn count-btn" data-max="3">3</button>
+        <button class="btn count-btn" data-max="4">4</button>
+        <button class="btn count-btn" data-max="5">5</button>
+        <button class="btn count-btn" data-max="6">6</button>
+        <button class="btn count-btn" data-max="7">7</button>
+        <button class="btn count-btn" data-max="8">8</button>
+      </div>
+    </div>
+    <div id="mp-error" class="mp-error"></div>
+    <div class="menu-rooms">
+      <h2>Комнаты в ожидании игроков</h2>
+      <div id="mp-rooms"><p class="subtitle" style="text-align:center">Загрузка...</p></div>
+    </div>
+  </section>
+
+  <main id="layout">
+    <section id="game-col">
+      <section id="opponents"></section>
+
+      <section id="table-wrap">
+        <div id="played-strip"></div>
+        <div id="banner" class="hidden">⚠️ Ваша карта меньше всех крайних — выберите ряд, который заберёте себе!</div>
+        <div id="rows"></div>
+      </section>
+
+      <section id="hand-area">
+        <div id="hand-header">
+          <h2>Ваши карты</h2>
+          <button id="play-btn" class="btn primary hidden" disabled>Сыграть карту</button>
+        </div>
+        <div id="hand"></div>
+      </section>
+    </section>
+
+    <aside id="sidebar">
+      <h2>Журнал</h2>
+      <div id="log"></div>
+    </aside>
+  </main>
+</div>
+
+<div id="overlay" class="hidden">
+  <div id="overlay-content" class="panel"></div>
+</div>
+
+<script src="js/mp.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
