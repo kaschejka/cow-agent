@@ -11,7 +11,7 @@ const MAX_PLAYERS = 4;
 const STALE_SECONDS = 90;
 const ROOM_TTL = 43200;
 const ROUND_PAUSE = 8;
-const AVATARS = ['🧑‍🌾', '🐄', '🕵️', '🚜', '🧢', '🌽', '🥛', '🐔'];
+const AVATARS = ['🦝', '🐾', '🕵️', '🎩', '🧢', '🌙', '🍩', '🎭'];
 
 const VK_APP_ID = '';
 const VK_APP_SECRET = '';

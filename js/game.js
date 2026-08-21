@@ -55,9 +55,9 @@ function shuffledDeck() {
 }
 
 const BOT_NAMES = [
-  'Зорька', 'Милка', 'Пеструшка', 'Бурёнка', 'Ромашка', 'Ласточка',
-  'Сметанка', 'Ватрушка', 'Корован', 'Рогалик', 'Черёмуха', 'Теляша',
-  'Агент Му', 'Мистер Му', 'Дон Быков', 'Бык Стив',
+  'Рокки', 'Полоскун', 'Полосатик', 'Воришка', 'Ловкач', 'Шустрик',
+  'Мася', 'Тучка', 'Елисей', 'Пуговка', 'Мадам Полоска', 'Барон Ракун',
+  'Агент Хвост', 'Дон Енотов', 'Резидент 004', 'Енот Стив',
 ];
 
 function pickBotNames(n) {
@@ -70,10 +70,10 @@ function pickBotNames(n) {
 }
 
 function makePlayers(botCount) {
-  const avatars = ['🤖', '🐄', '🕵️', '🚜', '🧢'];
+  const avatars = ['🤖', '🐾', '🕵️', '🎩', '🧢'];
   const names = pickBotNames(botCount);
   const players = [{
-    id: 0, name: 'Вы', isBot: false, avatar: '🧑‍🌾',
+    id: 0, name: 'Вы', isBot: false, avatar: '🦝',
     hand: [], taken: [], total: 0,
   }];
   for (let i = 1; i <= botCount; i++) {
@@ -88,11 +88,20 @@ function makePlayers(botCount) {
 function addLog() {}
 
 function cardInner(n) {
-  return `<span class="num">${n}</span><span class="cows">${'🐮'.repeat(cardPoints(n))}</span>`;
+  const pts = cardPoints(n);
+  if (pts === 7) {
+    return `<span class="num">${n}</span><span class="cows pips pips7">${'<i>🍩</i>'.repeat(7)}</span>`;
+  }
+  if (pts >= 5) {
+    return `<span class="num">${n}</span><span class="cows pips pips${pts}">${'<i>🍩</i>'.repeat(pts - 1)}</span>`;
+  }
+  return `<span class="num">${n}</span><span class="cows">${'🍩'.repeat(pts)}</span>`;
 }
 
 function cardHtml(n, extra) {
-  return `<div class="card ${extra || ''} p${cardPoints(n)}" data-card="${n}">${cardInner(n)}</div>`;
+  const pts = cardPoints(n);
+  const face = pts >= 5 ? ' pipface' : '';
+  return `<div class="card ${extra || ''} p${pts}${face}" data-card="${n}">${cardInner(n)}</div>`;
 }
 
 function renderRows() {
@@ -103,7 +112,7 @@ function renderRows() {
       return cardHtml(n, 'small' + (fresh ? ' just-placed' : ''));
     }).join('');
     return `<div class="row${selectable ? ' selectable' : ''}" data-row="${i}">
-      <div class="row-score" title="Ряд ${i + 1}"><span class="rs-num">${rowPoints(row)}</span><span class="rs-cow">🐄</span></div>
+      <div class="row-score" title="Ряд ${i + 1}"><span class="rs-num">${rowPoints(row)}</span><span class="rs-cow">🍩</span></div>
       <div class="row-cards">${cards}</div>
     </div>`;
   }).join('');
@@ -249,7 +258,7 @@ async function placeCard(player, card) {
     player.taken.push(...state.rows[idx]);
     state.rows[idx] = [card];
     state.lastPlaced = { rowIndex: idx, card };
-    addLog(`${player.avatar} ${player.name}: карта ${card} меньше всех — забирает ряд (${pts} 🐮)!`, player.isBot ? 'bot' : 'you');
+    addLog(`${player.avatar} ${player.name}: карта ${card} меньше всех — забирает ряд (${pts} 🍩)!`, player.isBot ? 'bot' : 'you');
     renderAll();
     await flashRow(idx);
     return;
@@ -263,7 +272,7 @@ async function placeCard(player, card) {
     player.taken.push(...target.row);
     state.rows[target.i] = [card];
     state.lastPlaced = { rowIndex: target.i, card };
-    addLog(`${player.avatar} ${player.name}: шестая корова! Карта ${card} сносит ряд (${pts} 🐮)!`, player.isBot ? 'bot' : 'you');
+    addLog(`${player.avatar} ${player.name}: шестой енот! Карта ${card} сносит ряд (${pts} 🍩)!`, player.isBot ? 'bot' : 'you');
   } else {
     target.row.push(card);
     state.lastPlaced = { rowIndex: target.i, card };
@@ -394,8 +403,8 @@ function showGameOver() {
   const losers = sorted.filter(p => p.total >= LOSE_AT);
 
   const titleFor = p => {
-    if (winners.includes(p)) return '<div class="final-title winner">⭐ Звезда Коровьего Шпионажа!</div>';
-    if (losers.includes(p)) return '<div class="final-title loser">👑 Повелитель Коров</div>';
+    if (winners.includes(p)) return '<div class="final-title winner">⭐ Звезда Енотьего Шпионажа!</div>';
+    if (losers.includes(p)) return '<div class="final-title loser">👑 Повелитель Енотов</div>';
     return '';
   };
 
@@ -475,10 +484,10 @@ function showSoloSetup() {
     <h2>🤖 Одиночная игра</h2>
     <p class="subtitle">«6 берёт!» — набери как можно меньше штрафных очков</p>
     <div class="rules-short">
-      <p>У каждого игрока 10 карт-коров. Каждый ход все выкладывают по одной карте, затем они вскрываются и раскладываются в 4 ряда по возрастанию — в ряд с минимальной разницей.</p>
-      <p>⚠️ <b>Шестая корова:</b> если ваша карта стала 6-й в ряду — вы забираете весь ряд себе.</p>
+      <p>У каждого игрока 10 карт. Каждый ход все выкладывают по одной карте, затем они вскрываются и раскладываются в 4 ряда по возрастанию — в ряд с минимальной разницей.</p>
+      <p>⚠️ <b>Шестой енот:</b> если ваша карта стала 6-й в ряду — вы забираете весь ряд себе.</p>
       <p>⚠️ <b>Наименьшая карта:</b> если ваша карта меньше всех крайних — вы забираете любой ряд на выбор.</p>
-      <p>Кто набирает 66+ штрафных очков — проигрывает и становится «Повелителем Коров». Осторожно: карта №55 стоит сразу 7 очков! Кратные 10 — по 3, оканчивающиеся на 5 — по 2, остальные — по 1.</p>
+      <p>Кто набирает 66+ штрафных очков — проигрывает и становится «Повелителем Енотов». Осторожно: карта №55 стоит сразу 7 пончиков! Кратные 10 — по 3, оканчивающиеся на 5 — по 2, остальные — по 1.</p>
     </div>
     <label class="bot-picker">Соперников-ботов:
       <select id="bot-count">${[1, 2, 3, 4].map(n => `<option value="${n}"${n === 3 ? ' selected' : ''}>${n}</option>`).join('')}</select>

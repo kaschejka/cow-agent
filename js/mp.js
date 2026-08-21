@@ -441,8 +441,8 @@ function mpPlayerById(id) {
 }
 
 function mpEventText(ev, p) {
-  if (ev.t === 'sixth') return `${p.avatar} ${p.name}: шестая корова! Карта ${ev.card} сносит ряд (${ev.pts} 🐮)!`;
-  if (ev.t === 'forced') return `${p.avatar} ${p.name}: карта ${ev.card} меньше всех — забирает ряд (${ev.pts} 🐮)!`;
+  if (ev.t === 'sixth') return `${p.avatar} ${p.name}: шестой енот! Карта ${ev.card} сносит ряд (${ev.pts} 🍩)!`;
+  if (ev.t === 'forced') return `${p.avatar} ${p.name}: карта ${ev.card} меньше всех — забирает ряд (${ev.pts} 🍩)!`;
   return `${p.avatar} ${p.name} кладёт карту ${ev.card} в ряд ${ev.row + 1}.`;
 }
 
@@ -562,8 +562,8 @@ MP.showGameOver = function (snap) {
   const meIsHost = snap.hostId === snap.you;
 
   const titleFor = s => {
-    if (winners.includes(s)) return '<div class="final-title winner">⭐ Звезда Коровьего Шпионажа!</div>';
-    if (losers.includes(s)) return '<div class="final-title loser">👑 Повелитель Коров</div>';
+    if (winners.includes(s)) return '<div class="final-title winner">⭐ Звезда Енотьего Шпионажа!</div>';
+    if (losers.includes(s)) return '<div class="final-title loser">👑 Повелитель Енотов</div>';
     return '';
   };
 
