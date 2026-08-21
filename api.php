@@ -7,10 +7,15 @@ header('Cache-Control: no-store');
 const HAND_SIZE = 10;
 const ROW_COUNT = 4;
 const LOSE_AT = 66;
-const MAX_PLAYERS = 8;
+const MAX_PLAYERS = 4;
 const STALE_SECONDS = 90;
 const ROOM_TTL = 43200;
+const ROUND_PAUSE = 8;
 const AVATARS = ['🧑‍🌾', '🐄', '🕵️', '🚜', '🧢', '🌽', '🥛', '🐔'];
+
+const VK_APP_ID = '';
+const VK_APP_SECRET = '';
+const AUTH_SESSION_TTL = 2592000;
 
 function respond(array $d, int $code = 200): void {
     http_response_code($code);
@@ -25,6 +30,38 @@ function fail(string $msg, int $code = 400): void {
 const REDIS_HOSTS = ['127.0.1.55', '127.0.0.1'];
 const REDIS_PORT = 6379;
 const LOCK_TTL = 5;
+
+const DB_DSN = 'mysql:host=127.0.0.1;port=3306;dbname=cows;charset=utf8mb4';
+const DB_USER = 'root';
+const DB_PASS = '';
+
+function db(): PDO {
+    static $pdo = null;
+    if ($pdo === null) {
+        try {
+            $pdo = new PDO(DB_DSN, DB_USER, DB_PASS, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_TIMEOUT => 3,
+            ]);
+            $pdo->exec("CREATE TABLE IF NOT EXISTS users (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                provider VARCHAR(16) NOT NULL,
+                ext_id VARCHAR(191) NOT NULL,
+                login VARCHAR(32) DEFAULT NULL,
+                pass_hash VARCHAR(255) DEFAULT NULL,
+                name VARCHAR(24) NOT NULL,
+                created_at INT UNSIGNED NOT NULL,
+                PRIMARY KEY (id),
+                UNIQUE KEY uidx (provider, ext_id),
+                UNIQUE KEY login (login)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (PDOException $e) {
+            fail('База данных недоступна, попробуйте позже', 503);
+        }
+    }
+    return $pdo;
+}
 
 function redis(): Redis {
     static $r = null;
@@ -71,6 +108,60 @@ function cleanName(?string $s): string {
     $s = preg_replace('/[\x00-\x1F\x7F]/u', '', $s) ?? '';
     $s = mb_substr($s, 0, 16);
     return $s === '' ? 'Игрок' : $s;
+}
+
+function authSanitizeLogin(string $s): string {
+    return strtolower(substr(preg_replace('/[^A-Za-z0-9_.@-]/', '', trim($s)) ?? '', 0, 32));
+}
+
+function currentUser(array $body): ?array {
+    $token = (string)($body['authToken'] ?? '');
+    if (!preg_match('/^[a-f0-9]{64}$/', $token)) return null;
+    $raw = redis()->get('sess:' . $token);
+    if (!is_string($raw)) return null;
+    $sess = json_decode($raw, true);
+    if (!is_array($sess) || !isset($sess['userId'])) return null;
+    return authGetUserById((int)$sess['userId']);
+}
+
+function authStartSession(int $userId, string $name): array {
+    $token = bin2hex(random_bytes(32));
+    redis()->setex('sess:' . $token, AUTH_SESSION_TTL, json_encode(['userId' => $userId, 'name' => $name], JSON_UNESCAPED_UNICODE));
+    return ['authToken' => $token, 'userId' => $userId, 'name' => $name];
+}
+
+function authGetUserById(int $id): ?array {
+    $st = db()->prepare('SELECT * FROM users WHERE id = ?');
+    $st->execute([$id]);
+    $row = $st->fetch();
+    return $row === false ? null : $row;
+}
+
+function authFindUserId(string $provider, string $extId): ?int {
+    $st = db()->prepare('SELECT id FROM users WHERE provider = ? AND ext_id = ?');
+    $st->execute([$provider, $extId]);
+    $v = $st->fetchColumn();
+    return $v === false ? null : (int)$v;
+}
+
+function authCreateUser(string $provider, string $extId, string $login, string $name, ?string $passHash): array {
+    try {
+        $st = db()->prepare('INSERT INTO users (provider, ext_id, login, pass_hash, name, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+        $st->execute([$provider, $extId, $login !== '' ? $login : null, $passHash, $name, time()]);
+        $id = (int)db()->lastInsertId();
+    } catch (PDOException $e) {
+        if ($e->getCode() === '23000') fail('Такой пользователь уже существует', 409);
+        throw $e;
+    }
+    return authGetUserById($id);
+}
+
+function authPublicUser(array $u): array {
+    return ['userId' => (int)$u['id'], 'name' => (string)$u['name'], 'provider' => (string)$u['provider'], 'login' => (string)$u['login']];
+}
+
+function authRespondUser(array $u): void {
+    respond(['ok' => true] + authStartSession((int)$u['id'], (string)$u['name']) + authPublicUser($u));
 }
 
 function newCode(): string {
@@ -120,6 +211,7 @@ function withRoom(string $code, callable $fn) {
         $raw = $r->get(roomKey($code));
         $room = is_string($raw) ? json_decode($raw, true) : null;
         if (!is_array($room)) return null;
+        autoAdvanceRound($room);
         $result = $fn($room);
         if ($result === '__delete') {
             $r->del(roomKey($code));
@@ -292,6 +384,7 @@ function finishTurn(array &$room): void {
         unset($p);
         $room['summary'] = $summary;
         $room['phase'] = $over ? 'game_end' : 'round_end';
+        if (!$over) $room['roundEndAt'] = time();
     } else {
         $room['phase'] = 'pick';
         autoSubmitBots($room);
@@ -312,6 +405,13 @@ function resolveIfReady(array &$room): void {
     $room['qIndex'] = 0;
     $room['lastEvents'] = [];
     advanceResolve($room);
+}
+
+function autoAdvanceRound(array &$room): void {
+    if (($room['phase'] ?? '') !== 'round_end') return;
+    if (time() - (int)($room['roundEndAt'] ?? 0) < ROUND_PAUSE) return;
+    bumpRoom($room);
+    startRound($room);
 }
 
 function startRound(array &$room): void {
@@ -342,6 +442,11 @@ function convertToBot(array &$room, int $idx): void {
     if ($p['isBot']) return;
     $p['isBot'] = true;
     $p['token'] = '';
+    $uid = $p['userId'] ?? null;
+    if ($uid !== null) {
+        unset($room['userIds'][$uid]);
+        unset($p['userId']);
+    }
     unset($p);
     if ($room['hostId'] === $room['players'][$idx]['id']) {
         $newHost = null;
@@ -417,6 +522,8 @@ function snapshot(array $room, int $me): array {
         'waitingFor' => $room['waitingFor'],
         'turnKey' => 'r' . $room['round'] . 't' . $room['turn'],
         'summary' => $room['summary'],
+        'roundEndAt' => (int)($room['roundEndAt'] ?? 0),
+        'pause' => ROUND_PAUSE,
     ];
 }
 
@@ -424,12 +531,99 @@ $body = json_decode((string)file_get_contents('php://input'), true);
 if (!is_array($body)) fail('Некорректный запрос');
 $action = (string)($body['action'] ?? '');
 
-if ($action === 'create') {
+if ($action === 'register') {
+    $login = authSanitizeLogin((string)($body['login'] ?? ''));
+    $pass = (string)($body['password'] ?? '');
+    $name = cleanName($body['name'] ?? $login);
+    if (strlen($login) < 3) fail('Логин: минимум 3 символа (латиница, цифры, . _ - @)');
+    if (strlen($pass) < 6) fail('Пароль: минимум 6 символов');
+    if (authFindUserId('local', $login) !== null) fail('Такой логин уже занят', 409);
+    $u = authCreateUser('local', $login, $login, $name, password_hash($pass, PASSWORD_DEFAULT));
+    authRespondUser($u);
+}
+
+if ($action === 'login') {
+    $login = authSanitizeLogin((string)($body['login'] ?? ''));
+    $pass = (string)($body['password'] ?? '');
+    $id = authFindUserId('local', $login);
+    $u = $id !== null ? authGetUserById($id) : null;
+    if ($u === null || !password_verify($pass, (string)($u['pass_hash'] ?? ''))) fail('Неверный логин или пароль', 401);
+    authRespondUser($u);
+}
+
+if ($action === 'logout') {
+    $token = (string)($body['authToken'] ?? '');
+    if (preg_match('/^[a-f0-9]{64}$/', $token)) redis()->del('sess:' . $token);
+    respond(['ok' => true]);
+}
+
+if ($action === 'me') {
+    $u = currentUser($body);
+    if (!$u) fail('Не авторизован', 401);
+    respond(['ok' => true] + authPublicUser($u));
+}
+
+if ($action === 'authConfig') {
+    respond(['ok' => true, 'vkAppId' => VK_APP_ID]);
+}
+
+if ($action === 'authYandex') {
+    $extId = substr(preg_replace('/[^A-Za-z0-9_-]/', '', (string)($body['yaId'] ?? '')) ?? '', 0, 64);
+    if ($extId === '') fail('Нет данных авторизации Яндекса');
     $name = cleanName($body['name'] ?? '');
+    $id = authFindUserId('yandex', $extId);
+    if ($id === null) {
+        $u = authCreateUser('yandex', $extId, 'ya_' . substr($extId, -16), $name, null);
+        authRespondUser($u);
+    }
+    $u = authGetUserById($id);
+    if ($u === null) fail('Ошибка данных пользователя');
+    authRespondUser($u);
+}
+
+if ($action === 'authVk') {
+    if (VK_APP_ID === '' || VK_APP_SECRET === '') fail('Авторизация через VK не настроена на сервере');
+    $code = trim((string)($body['code'] ?? ''));
+    if ($code === '') fail('Нет кода авторизации VK');
+    $redirectUri = (string)($body['redirectUri'] ?? '');
+    $query = http_build_query([
+        'client_id' => VK_APP_ID,
+        'client_secret' => VK_APP_SECRET,
+        'redirect_uri' => $redirectUri,
+        'code' => $code,
+    ]);
+    $raw = @file_get_contents('https://oauth.vk.com/access_token?' . $query);
+    $data = $raw ? json_decode($raw, true) : null;
+    if (!is_array($data) || empty($data['access_token'])) {
+        fail('VK: не удалось обменять код' . (isset($data['error_description']) ? ': ' . $data['error_description'] : ''), 401);
+    }
+    $vkUid = (string)$data['user_id'];
+    $raw2 = @file_get_contents('https://api.vk.com/method/users.get?'
+        . http_build_query(['user_ids' => $vkUid, 'fields' => 'photo_100', 'access_token' => $data['access_token'], 'v' => '5.199']));
+    $info = $raw2 ? json_decode($raw2, true) : null;
+    $fname = $info['response'][0]['first_name'] ?? '';
+    $lname = $info['response'][0]['last_name'] ?? '';
+    $name = cleanName(trim($fname . ' ' . $lname));
+    $id = authFindUserId('vk', $vkUid);
+    if ($id === null) {
+        $u = authCreateUser('vk', $vkUid, 'vk_' . $vkUid, $name, null);
+        authRespondUser($u);
+    }
+    $u = authGetUserById($id);
+    if ($u === null) fail('Ошибка данных пользователя');
+    authRespondUser($u);
+}
+
+if ($action === 'create') {
+    $cu = currentUser($body);
+    $name = cleanName($cu['name'] ?? ($body['name'] ?? ''));
     $max = (int)($body['max'] ?? 4);
     if ($max < 2 || $max > MAX_PLAYERS) fail('Число участников — от 2 до ' . MAX_PLAYERS);
     $code = newCode();
     $player = makePlayer(0, $name, false);
+    if ($cu !== null) {
+        $player['userId'] = (int)$cu['id'];
+    }
     $room = [
         'code' => $code,
         'createdAt' => time(),
@@ -440,6 +634,7 @@ if ($action === 'create') {
         'nextId' => 1,
         'maxPlayers' => $max,
         'players' => [$player],
+        'userIds' => $cu !== null ? [(int)$cu['id'] => 0] : [],
         'rows' => [],
         'round' => 0,
         'turn' => 0,
@@ -461,12 +656,20 @@ if ($action === 'rooms') {
 
 if ($action === 'join') {
     $code = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string)($body['room'] ?? '')));
-    $result = withRoom($code, function (array &$room) use ($body) {
+    $cu = currentUser($body);
+    $result = withRoom($code, function (array &$room) use ($body, $cu) {
         if ($room['phase'] !== 'lobby') return ['ok' => false, 'error' => 'Игра в этой комнате уже началась'];
         $max = (int)($room['maxPlayers'] ?? MAX_PLAYERS);
+        if ($cu !== null && isset($room['userIds'][(int)$cu['id']])) {
+            return ['ok' => false, 'error' => 'Вы уже в этой комнате'];
+        }
         if (count($room['players']) >= $max) return ['ok' => false, 'error' => 'Комната заполнена'];
         $id = $room['nextId']++;
-        $p = makePlayer($id, cleanName($body['name'] ?? ''), false);
+        $p = makePlayer($id, cleanName($cu['name'] ?? ($body['name'] ?? '')), false);
+        if ($cu !== null) {
+            $p['userId'] = (int)$cu['id'];
+            $room['userIds'][(int)$cu['id']] = $id;
+        }
         $room['players'][] = $p;
         bumpRoom($room);
         $started = false;
@@ -597,7 +800,9 @@ switch ($action) {
         $out = $authed(function (array &$room, int $idx) {
             $wasHost = $room['players'][$idx]['id'] === $room['hostId'];
             if ($room['phase'] === 'lobby') {
+                $uid = $room['players'][$idx]['userId'] ?? null;
                 array_splice($room['players'], $idx, 1);
+                if ($uid !== null) unset($room['userIds'][$uid]);
                 if (!count($room['players'])) return '__delete';
                 if ($wasHost) {
                     $newHost = null;
@@ -623,3 +828,4 @@ switch ($action) {
     default:
         fail('Неизвестное действие');
 }
+

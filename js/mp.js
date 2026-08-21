@@ -26,6 +26,15 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+window.playerName = function () {
+  const u = window.AUTH && AUTH.getUser();
+  if (u && u.name) return u.name;
+  if (!window.playerName.cached) {
+    window.playerName.cached = 'Игрок-' + Math.floor(100 + Math.random() * 900);
+  }
+  return window.playerName.cached;
+};
+
 MP.loadSession = function () {
   try {
     const s = JSON.parse(localStorage.getItem('cow_mp_session') || 'null');
@@ -180,12 +189,6 @@ MP.tick = async function () {
 MP.sessionLost = function (msg) {
   MP.clearSession();
   MP.hardReset();
-  const s = typeof loadSolo === 'function' ? loadSolo() : null;
-  if (s) {
-    restoreSolo(s);
-    addLog('⚠️ ' + (msg || 'Сетевая сессия завершена') + '. Продолжена сохранённая одиночная игра.', 'warn');
-    return;
-  }
   showMainMenu();
   const box = $('#mp-error');
   if (box) box.textContent = msg || 'Сессия завершена';
@@ -222,13 +225,7 @@ MP.joinRoom = async function (roomId, btn) {
   const errBox = $('#mp-error');
   try {
     if (MP.room === roomId && MP.token) { MP.refreshRooms(); return; }
-    const name = localStorage.getItem('cow_mp_name') || '';
-    if (!name) {
-      if (errBox) errBox.textContent = 'Сначала задайте имя (⚙️)';
-      openSettings();
-      if (btn) btn.disabled = false;
-      return;
-    }
+    const name = playerName();
     if (MP.room && MP.token) {
       try { await mpApi('leave', { room: MP.room }); } catch {}
       MP.stopPoll();
@@ -404,8 +401,6 @@ MP.process = function (snap) {
     if (MP.localTurnKey && snap.round === 1 && snap.turn === 1) {
       MP.submittedKeys.clear();
       MP.modalKey = null;
-      els.log.innerHTML = '';
-      addLog('🔄 Реванш — новая игра началась!', 'sys');
     }
     buildLocalState(snap);
     MP.localTurnKey = snap.turnKey;
@@ -532,27 +527,31 @@ MP.showRoundSummary = function (snap) {
       roundPts: s.roundPts,
       total: s.total,
     }));
-  const meIsHost = snap.hostId === snap.you;
   els.overlayContent.innerHTML = `
     <h2>📋 Конец тура ${snap.round}</h2>
     <p class="subtitle">Штрафные очки за тур добавлены к общему счёту.</p>
     ${scoreTableHtml(entries)}
-    ${meIsHost
-      ? '<button id="mp-next" class="btn primary">Следующий тур →</button>'
-      : '<p class="subtitle">Ждём хозяина комнаты...</p>'}
-    <button id="mp-leave" class="btn secondary" style="margin-left:10px">Покинуть игру</button>`;
+    <p id="mp-auto-next" class="subtitle"></p>
+    <button id="mp-leave" class="btn secondary" style="margin-top:6px">Покинуть игру</button>`;
   els.overlay.classList.remove('hidden');
 
-  if (meIsHost) {
-    $('#mp-next').addEventListener('click', () => {
-      els.overlay.classList.add('hidden');
-      mpApi('next_round').then(() => MP.tick()).catch(e => {
-        addLog('Ошибка: ' + e.message, 'warn');
-        MP.tick();
-      });
-    });
-  }
-  $('#mp-leave').addEventListener('click', () => MP.leave());
+  if (MP.autoTimer) { clearInterval(MP.autoTimer); MP.autoTimer = null; }
+  const tickCountdown = () => {
+    const el = $('#mp-auto-next');
+    if (!el) { clearInterval(MP.autoTimer); MP.autoTimer = null; return; }
+    const left = Math.max(0, Math.ceil((snap.roundEndAt + snap.pause) - Date.now() / 1000));
+    el.textContent = left > 0
+      ? `⏳ Следующий тур через ${left} с…`
+      : '⏳ Начинаем следующий тур…';
+  };
+  tickCountdown();
+  MP.autoTimer = setInterval(tickCountdown, 500);
+
+  $('#mp-leave').addEventListener('click', () => {
+    if (MP.autoTimer) { clearInterval(MP.autoTimer); MP.autoTimer = null; }
+    els.overlay.classList.add('hidden');
+    MP.leave();
+  });
 };
 
 MP.showGameOver = function (snap) {

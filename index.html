@@ -23,15 +23,6 @@
         <button id="solo-btn" class="btn primary">🤖 Одиночная игра</button>
         <button id="net-btn" class="btn primary">🌐 Сетевая игра</button>
       </div>
-      <button id="settings-btn" class="icon-btn" title="Имя и настройки">⚙️</button>
-    </div>
-    <div id="settings-panel" class="menu-rooms hidden">
-      <label class="menu-name">Ваше имя
-        <input id="mp-name" maxlength="16" placeholder="Агент 🐮">
-      </label>
-      <div class="lobby-actions">
-        <button id="settings-done" class="btn secondary">Готово</button>
-      </div>
     </div>
     <div id="net-panel" class="menu-rooms hidden">
       <p class="net-label">Сколько игроков в вашей комнате?</p>
@@ -39,13 +30,28 @@
         <button class="btn count-btn" data-max="2">2</button>
         <button class="btn count-btn" data-max="3">3</button>
         <button class="btn count-btn" data-max="4">4</button>
-        <button class="btn count-btn" data-max="5">5</button>
-        <button class="btn count-btn" data-max="6">6</button>
-        <button class="btn count-btn" data-max="7">7</button>
-        <button class="btn count-btn" data-max="8">8</button>
       </div>
     </div>
     <div id="mp-error" class="mp-error"></div>
+    <div id="auth-block" class="menu-rooms">
+      <div id="auth-info" class="auth-row">Загрузка...</div>
+      <div id="auth-guest-actions" class="auth-providers"></div>
+      <form id="auth-form" class="hidden" autocomplete="off">
+        <label class="menu-name" id="auth-name-row">Имя в игре
+          <input id="auth-name" maxlength="16">
+        </label>
+        <label class="menu-name">Логин (почта)
+          <input id="auth-login" maxlength="32">
+        </label>
+        <label class="menu-name">Пароль
+          <input id="auth-pass" type="password" maxlength="64">
+        </label>
+        <div class="lobby-actions">
+          <button type="button" id="auth-submit" class="btn primary">Войти</button>
+        </div>
+        <p id="auth-error" class="mp-error"></p>
+      </form>
+    </div>
     <div class="menu-rooms">
       <h2>Комнаты в ожидании игроков</h2>
       <div id="mp-rooms"><p class="subtitle" style="text-align:center">Загрузка...</p></div>
@@ -54,8 +60,6 @@
 
   <main id="layout">
     <section id="game-col">
-      <section id="opponents"></section>
-
       <section id="table-wrap">
         <div id="played-strip"></div>
         <div id="banner" class="hidden">⚠️ Ваша карта меньше всех крайних — выберите ряд, который заберёте себе!</div>
@@ -72,8 +76,12 @@
     </section>
 
     <aside id="sidebar">
-      <h2>Журнал</h2>
-      <div id="log"></div>
+      <h2>Игроки</h2>
+      <div id="players"></div>
+      <div id="chat-box">
+        <h2>Чат</h2>
+        <div class="subtitle">Здесь скоро появится чат</div>
+      </div>
     </aside>
   </main>
 </div>
@@ -84,5 +92,6 @@
 
 <script src="js/mp.js"></script>
 <script src="js/game.js"></script>
+<script src="js/auth.js"></script>
 </body>
 </html>

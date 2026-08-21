@@ -10,10 +10,9 @@ const $ = sel => document.querySelector(sel);
 const els = {
   rows: $('#rows'),
   hand: $('#hand'),
-  opponents: $('#opponents'),
+  players: $('#players'),
   playedStrip: $('#played-strip'),
   banner: $('#banner'),
-  log: $('#log'),
   playBtn: $('#play-btn'),
   roundInfo: $('#round-info'),
   turnInfo: $('#turn-info'),
@@ -55,28 +54,38 @@ function shuffledDeck() {
   return d;
 }
 
+const BOT_NAMES = [
+  'Зорька', 'Милка', 'Пеструшка', 'Бурёнка', 'Ромашка', 'Ласточка',
+  'Сметанка', 'Ватрушка', 'Корован', 'Рогалик', 'Черёмуха', 'Теляша',
+  'Агент Му', 'Мистер Му', 'Дон Быков', 'Бык Стив',
+];
+
+function pickBotNames(n) {
+  const pool = [...BOT_NAMES];
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, n);
+}
+
 function makePlayers(botCount) {
   const avatars = ['🤖', '🐄', '🕵️', '🚜', '🧢'];
+  const names = pickBotNames(botCount);
   const players = [{
     id: 0, name: 'Вы', isBot: false, avatar: '🧑‍🌾',
     hand: [], taken: [], total: 0,
   }];
   for (let i = 1; i <= botCount; i++) {
     players.push({
-      id: i, name: 'Бот ' + i, isBot: true, avatar: avatars[(i - 1) % avatars.length],
+      id: i, name: names[i - 1] || ('Бот ' + i), isBot: true, avatar: avatars[(i - 1) % avatars.length],
       hand: [], taken: [], total: 0,
     });
   }
   return players;
 }
 
-function addLog(msg, type) {
-  const line = document.createElement('div');
-  line.className = 'log-line ' + (type || 'sys');
-  line.textContent = msg;
-  els.log.prepend(line);
-  while (els.log.children.length > 80) els.log.lastChild.remove();
-}
+function addLog() {}
 
 function cardInner(n) {
   return `<span class="num">${n}</span><span class="cows">${'🐮'.repeat(cardPoints(n))}</span>`;
@@ -94,7 +103,7 @@ function renderRows() {
       return cardHtml(n, 'small' + (fresh ? ' just-placed' : ''));
     }).join('');
     return `<div class="row${selectable ? ' selectable' : ''}" data-row="${i}">
-      <div class="row-label">Ряд ${i + 1} · ${rowPoints(row)}🐮</div>
+      <div class="row-score" title="Ряд ${i + 1}"><span class="rs-num">${rowPoints(row)}</span><span class="rs-cow">🐄</span></div>
       <div class="row-cards">${cards}</div>
     </div>`;
   }).join('');
@@ -111,7 +120,7 @@ function renderHand() {
 }
 
 function renderOpponents() {
-  els.opponents.innerHTML = state.players.map(p => {
+  els.players.innerHTML = state.players.map(p => {
     const handN = p.handCount != null ? p.handCount : p.hand.length;
     const roundPts = p.takenPts != null ? p.takenPts : rowPoints(p.taken);
     const committed = p.committed != null
@@ -270,7 +279,7 @@ async function playTurn() {
   state.phase = 'pick';
   ui.selected = null;
   renderAll();
-  saveSolo();
+
 
   const humanCard = await new Promise(resolve => { state.resolveHumanCard = resolve; });
   await finishTurnAfterHuman(humanCard);
@@ -334,7 +343,7 @@ function endRound() {
   state.phase = 'round-end';
   for (const p of state.players) p.total += rowPoints(p.taken);
   renderAll();
-  saveSolo();
+
   const gameOver = state.players.some(p => p.total >= LOSE_AT);
   showRoundSummary(gameOver);
 }
@@ -378,7 +387,7 @@ function showRoundSummary(gameOver) {
 
 function showGameOver() {
   state.phase = 'game-end';
-  saveSolo();
+
   const sorted = [...state.players].sort((a, b) => a.total - b.total);
   const minScore = sorted[0].total;
   const winners = sorted.filter(p => p.total === minScore);
@@ -402,7 +411,6 @@ function showGameOver() {
   els.overlay.classList.remove('hidden');
   $('#restart-btn').addEventListener('click', () => {
     els.overlay.classList.add('hidden');
-    if (state && state.phase === 'game-end') localStorage.removeItem(SOLO_KEY);
     showMainMenu();
   });
 }
@@ -416,7 +424,7 @@ function refreshExitBtn() {
     btn.title = 'Выйти из игры; для остальных участников партия продолжится с ботом';
   } else {
     btn.textContent = '⌂ В меню';
-    btn.title = 'Выйти в меню; прогресс сохранится и продолжится после перезагрузки';
+    btn.title = 'Выйти в меню — текущая партия будет сброшена';
   }
 }
 
@@ -441,7 +449,6 @@ function hideMenuScreen() {
 
 $('#exit-btn').addEventListener('click', () => {
   if (MODE === 'mp' && MP.room) { MP.leave(); return; }
-  if (!state || state.phase === 'game-end') localStorage.removeItem(SOLO_KEY);
   els.overlay.classList.add('hidden');
   state = null;
   MODE = 'menu';
@@ -461,65 +468,6 @@ function showMainMenu() {
   netBtn.title = MP.inMenuView ? 'У вас уже есть комната' : '';
   if (MP.inMenuView) MP.startPoll(false);
   MP.startRoomList();
-}
-
-const SOLO_KEY = 'cow_solo_save';
-
-function saveSolo() {
-  if (MODE !== 'solo' || !state) return;
-  try {
-    localStorage.setItem(SOLO_KEY, JSON.stringify({
-      players: state.players,
-      rows: state.rows,
-      round: state.round,
-      turn: state.turn,
-      phase: state.phase,
-    }));
-  } catch {}
-}
-
-function loadSolo() {
-  try {
-    const s = JSON.parse(localStorage.getItem(SOLO_KEY) || 'null');
-    if (!s || !Array.isArray(s.players) || s.players.length < 2) return null;
-    if (!Array.isArray(s.rows) || s.rows.length !== ROW_COUNT) return null;
-    if (typeof s.round !== 'number' || typeof s.turn !== 'number') return null;
-    if (!['pick', 'round-end', 'game-end'].includes(s.phase)) return null;
-    return s;
-  } catch { return null; }
-}
-
-async function resumeSoloTurn() {
-  state.phase = 'pick';
-  ui.selected = null;
-  renderAll();
-  const humanCard = await new Promise(resolve => { state.resolveHumanCard = resolve; });
-  await finishTurnAfterHuman(humanCard);
-}
-
-function restoreSolo(s) {
-  MODE = 'solo';
-  hideMenuScreen();
-  state = {
-    players: s.players,
-    rows: s.rows,
-    round: s.round,
-    turn: s.turn,
-    played: [],
-    lastPlaced: null,
-    phase: s.phase,
-    resolveHumanCard: null,
-    resolveRowPick: null,
-  };
-  ui.selected = null;
-  els.log.innerHTML = '';
-  els.overlay.classList.add('hidden');
-  addLog('Игра восстановлена — продолжаем с того же места.', 'sys');
-  renderAll();
-  refreshExitBtn();
-  if (state.phase === 'pick') resumeSoloTurn();
-  else if (state.phase === 'round-end') showRoundSummary(false);
-  else showGameOver();
 }
 
 function showSoloSetup() {
@@ -563,8 +511,6 @@ function startGame(botCount) {
   };
   ui.selected = null;
   els.overlay.classList.add('hidden');
-  els.log.innerHTML = '';
-  addLog('Игра началась! Удачной охоты, агент! 🕵️', 'sys');
   refreshExitBtn();
   startRound();
 }
@@ -615,28 +561,14 @@ $('#solo-btn').addEventListener('click', () => {
   showSoloSetup();
 });
 
-function openSettings() {
-  $('#net-panel').classList.add('hidden');
-  $('#settings-panel').classList.remove('hidden');
-  $('#mp-name').focus();
-}
-
 $('#net-btn').addEventListener('click', () => {
   if (MP.room && MP.token) { MP.refreshRooms(); return; }
-  const name = ($('#mp-name').value || '').trim();
-  if (!name) {
-    $('#mp-error').textContent = 'Сначала задайте имя (⚙️)';
-    openSettings();
-    return;
-  }
-  localStorage.setItem('cow_mp_name', name);
   $('#mp-error').textContent = '';
-  $('#settings-panel').classList.add('hidden');
   $('#net-panel').classList.toggle('hidden');
 });
 
 async function createNetRoom(max) {
-  const name = ($('#mp-name').value || '').trim();
+  const name = playerName();
   $('#mp-error').textContent = '';
   $('#net-btn').disabled = true;
   try {
@@ -660,35 +592,13 @@ $('#net-panel').addEventListener('click', e => {
   createNetRoom(parseInt(btn.dataset.max, 10));
 });
 
-$('#settings-btn').addEventListener('click', () => {
-  $('#net-panel').classList.add('hidden');
-  $('#settings-panel').classList.toggle('hidden');
-  if (!$('#settings-panel').classList.contains('hidden')) $('#mp-name').focus();
-});
-
-$('#settings-done').addEventListener('click', () => {
-  const n = $('#mp-name').value.trim();
-  if (!n) { $('#mp-error').textContent = 'Имя не может быть пустым'; return; }
-  localStorage.setItem('cow_mp_name', n);
-  $('#settings-panel').classList.add('hidden');
-  $('#mp-error').textContent = '';
-});
-
 $('#mp-rooms').addEventListener('click', e => {
   if (e.target.closest('[data-leave]')) { MP.leaveFromMenu(); return; }
   const btn = e.target.closest('[data-room]');
   if (!btn || btn.disabled) return;
-  const name = localStorage.getItem('cow_mp_name') || '';
-  if (!name) {
-    $('#mp-error').textContent = 'Сначала задайте имя (⚙️)';
-    openSettings();
-    return;
-  }
   btn.disabled = true;
   MP.joinRoom(btn.dataset.room, btn);
 });
-
-$('#mp-name').value = localStorage.getItem('cow_mp_name') || '';
 
 (function boot() {
   const mpSession = typeof MP !== 'undefined' ? MP.loadSession() : null;
@@ -702,7 +612,5 @@ $('#mp-name').value = localStorage.getItem('cow_mp_name') || '';
     MP.resume();
     return;
   }
-  const solo = loadSolo();
-  if (solo) { restoreSolo(solo); return; }
   showMainMenu();
 })();
