@@ -11,6 +11,7 @@ const MAX_PLAYERS = 4;
 const STALE_SECONDS = 90;
 const ROOM_TTL = 43200;
 const ROUND_PAUSE = 8;
+const TURN_LIMIT = 60;
 const AVATARS = ['🦝', '🐾', '🕵️', '🎩', '🧢', '🌙', '🍩', '🎭'];
 
 const VK_APP_ID = '';
@@ -212,6 +213,7 @@ function withRoom(string $code, callable $fn) {
         $room = is_string($raw) ? json_decode($raw, true) : null;
         if (!is_array($room)) return null;
         autoAdvanceRound($room);
+        checkTurnTimeout($room);
         $result = $fn($room);
         if ($result === '__delete') {
             $r->del(roomKey($code));
@@ -336,6 +338,7 @@ function advanceResolve(array &$room): void {
             }
             $room['phase'] = 'choose_row';
             $room['waitingFor'] = $pid;
+            $room['turnEndAt'] = time() + TURN_LIMIT;
             return;
         }
         usort($opts, function ($a, $b) use ($card, $room) {
@@ -389,6 +392,7 @@ function finishTurn(array &$room): void {
         $room['phase'] = 'pick';
         autoSubmitBots($room);
         resolveIfReady($room);
+        refreshAfterTransition($room);
     }
 }
 
@@ -414,6 +418,39 @@ function autoAdvanceRound(array &$room): void {
     startRound($room);
 }
 
+function refreshAfterTransition(array &$room): void {
+    $ph = $room['phase'] ?? '';
+    if ($ph === 'pick' || $ph === 'choose_row') {
+        $room['turnEndAt'] = time() + TURN_LIMIT;
+    }
+}
+
+function checkTurnTimeout(array &$room): void {
+    $ph = $room['phase'] ?? '';
+    if ($ph !== 'pick' && $ph !== 'choose_row') return;
+    $end = (int)($room['turnEndAt'] ?? 0);
+    if ($end === 0 || time() < $end) return;
+    bumpRoom($room);
+    if ($ph === 'pick') {
+        foreach ($room['players'] as &$p) {
+            if (!$p['isBot'] && $p['card'] === null && !empty($p['hand'])) {
+                sort($p['hand']);
+                $p['card'] = array_shift($p['hand']);
+            }
+        }
+        unset($p);
+        resolveIfReady($room);
+    } else {
+        $pid = (int)$room['waitingFor'];
+        applyTake($room, $pid, $room['queue'][$room['qIndex']]['card'], cheapestRow($room['rows']), 'forced');
+        $room['qIndex']++;
+        $room['waitingFor'] = null;
+        $room['phase'] = 'resolve';
+        advanceResolve($room);
+    }
+    refreshAfterTransition($room);
+}
+
 function startRound(array &$room): void {
     $deck = shuffledDeck();
     foreach ($room['players'] as &$p) {
@@ -435,6 +472,7 @@ function startRound(array &$room): void {
     $room['phase'] = 'pick';
     autoSubmitBots($room);
     resolveIfReady($room);
+    refreshAfterTransition($room);
 }
 
 function convertToBot(array &$room, int $idx): void {
@@ -524,6 +562,8 @@ function snapshot(array $room, int $me): array {
         'summary' => $room['summary'],
         'roundEndAt' => (int)($room['roundEndAt'] ?? 0),
         'pause' => ROUND_PAUSE,
+        'turnEndAt' => (int)($room['turnEndAt'] ?? 0),
+        'turnLimit' => TURN_LIMIT,
     ];
 }
 

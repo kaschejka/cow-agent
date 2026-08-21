@@ -229,9 +229,11 @@ function askHumanTakeRow() {
   return new Promise(resolve => {
     state.phase = 'choose-row';
     renderAll();
+    armSoloTimer();
     addLog('Ваша карта меньше всех крайних — выберите ряд, который заберёте!', 'warn');
     state.resolveRowPick = idx => {
       state.resolveRowPick = null;
+      disarmSoloTimer();
       state.phase = 'locked';
       renderRows();
       updateBanner();
@@ -288,14 +290,17 @@ async function playTurn() {
   state.phase = 'pick';
   ui.selected = null;
   renderAll();
+  armSoloTimer();
 
 
   const humanCard = await new Promise(resolve => { state.resolveHumanCard = resolve; });
+  disarmSoloTimer();
   await finishTurnAfterHuman(humanCard);
 }
 
 async function finishTurnAfterHuman(humanCard) {
   state.phase = 'locked';
+  disarmSoloTimer();
   const human = state.players[0];
   human.hand = human.hand.filter(c => c !== humanCard);
   state.played.push({ player: human, card: humanCard });
@@ -350,6 +355,7 @@ function startRound() {
 
 function endRound() {
   state.phase = 'round-end';
+  disarmSoloTimer();
   for (const p of state.players) p.total += rowPoints(p.taken);
   renderAll();
 
@@ -492,18 +498,25 @@ function showSoloSetup() {
     <label class="bot-picker">Соперников-ботов:
       <select id="bot-count">${[1, 2, 3, 4].map(n => `<option value="${n}"${n === 3 ? ' selected' : ''}>${n}</option>`).join('')}</select>
     </label>
+    <label class="bot-picker">⏱ Контроль времени:
+      <select id="time-limit">
+        <option value="0" selected>Без контроля</option>
+        <option value="60">1 минута на ход</option>
+      </select>
+    </label>
     <br>
     <button id="start-btn" class="btn primary">Начать игру</button>
     <button id="back-btn" class="btn secondary">← Назад</button>`;
   els.overlay.classList.remove('hidden');
   $('#start-btn').addEventListener('click', () => {
     const n = parseInt($('#bot-count').value, 10);
-    startGame(n);
+    const tl = parseInt($('#time-limit').value, 10);
+    startGame(n, tl);
   });
   $('#back-btn').addEventListener('click', showMainMenu);
 }
 
-function startGame(botCount) {
+function startGame(botCount, timeLimit) {
   if (MP.room && MP.token) MP.leaveFromMenu();
   MODE = 'solo';
   hideMenuScreen();
@@ -517,6 +530,8 @@ function startGame(botCount) {
     phase: 'idle',
     resolveHumanCard: null,
     resolveRowPick: null,
+    turnLimit: timeLimit > 0 ? timeLimit : null,
+    turnDeadline: 0,
   };
   ui.selected = null;
   els.overlay.classList.add('hidden');
@@ -546,6 +561,50 @@ els.rows.addEventListener('click', e => {
   if (!rowEl) return;
   state.resolveRowPick(parseInt(rowEl.dataset.row, 10));
 });
+
+function armSoloTimer() {
+  if (!state) return;
+  state.turnDeadline = state.turnLimit ? Date.now() + state.turnLimit * 1000 : 0;
+}
+
+function disarmSoloTimer() {
+  if (state) state.turnDeadline = 0;
+}
+
+function soloTimeoutAction() {
+  if (!state || !state.turnDeadline || Date.now() < state.turnDeadline) return;
+  state.turnDeadline = 0;
+  if (state.phase === 'pick' && state.resolveHumanCard) {
+    const human = state.players[0];
+    const lowest = Math.min(...human.hand);
+    const resolve = state.resolveHumanCard;
+    state.resolveHumanCard = null;
+    ui.selected = lowest;
+    resolve(lowest);
+  } else if (state.phase === 'choose-row' && state.resolveRowPick) {
+    const resolve = state.resolveRowPick;
+    state.resolveRowPick = null;
+    resolve(cheapestRowIndex());
+  }
+}
+
+function updateTurnTimerUI() {
+  const el = document.getElementById('turn-timer');
+  if (!el) return;
+  let end = 0;
+  if (MODE === 'solo' && state) end = state.turnDeadline || 0;
+  else if (MODE === 'mp') end = (MP.turnEndAt || 0) * 1000;
+  if (!end) { el.hidden = true; return; }
+  const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+  el.hidden = false;
+  el.textContent = '⏱ ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
+  el.classList.toggle('low', left <= 10);
+}
+
+setInterval(() => {
+  soloTimeoutAction();
+  updateTurnTimerUI();
+}, 250);
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !$('#exit-btn').classList.contains('hidden')) {

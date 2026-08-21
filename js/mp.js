@@ -390,6 +390,7 @@ function refreshLocalMeta(snap) {
 }
 
 MP.process = function (snap) {
+  MP.turnEndAt = (snap.phase === 'pick' || snap.phase === 'choose_row') ? (snap.turnEndAt || 0) : 0;
   if (snap.phase === 'pick' && !els.overlay.classList.contains('hidden') && MP.modalKey) {
     els.overlay.classList.add('hidden');
   }
