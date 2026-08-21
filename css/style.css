@@ -60,6 +60,15 @@ body {
   display: flex; align-items: center; gap: 10px;
 }
 .opp.human { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opp.gain { animation: gainPulse .7s ease; }
+@keyframes gainPulse {
+  30% { box-shadow: 0 0 0 3px var(--accent); transform: scale(1.03); }
+}
+.donut-fall {
+  position: fixed; z-index: 90; pointer-events: none;
+  font-size: 26px; line-height: 1;
+  will-change: transform, opacity;
+}
 .opp .avatar { font-size: 26px; }
 .opp .opp-body { display: flex; flex-direction: column; gap: 2px; }
 .opp .opp-name { font-weight: 700; font-size: 14px; }

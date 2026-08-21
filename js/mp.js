@@ -467,6 +467,7 @@ MP.animate = async function (pending) {
     state.lastPlaced = { rowIndex: ev.row, card: ev.card };
     addLog(mpEventText(ev, p), ev.pid === MP.myId ? 'you' : 'bot');
     renderAll();
+    if (ev.t !== 'place' && p.id === MP.myId) spawnDonutRain(p.id, ev.pts);
     await flashRow(ev.row);
 
     if (entry) {
@@ -564,7 +565,7 @@ MP.showGameOver = function (snap) {
 
   const titleFor = s => {
     if (winners.includes(s)) return '<div class="final-title winner">⭐ Звезда Енотьего Шпионажа!</div>';
-    if (losers.includes(s)) return '<div class="final-title loser">👑 Повелитель Енотов</div>';
+    if (losers.includes(s)) return '<div class="final-title loser">👑 Повелитель Пончиков</div>';
     return '';
   };
 

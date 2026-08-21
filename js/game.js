@@ -140,7 +140,7 @@ function renderOpponents() {
       ? '<span class="committed" title="Карта на этот ход заявлена"></span>'
       : '';
     const stats = `Очки: <b>${p.total}</b> · Тур: <b>${roundPts == null ? '—' : '+' + roundPts}</b> · Карт: <b>${handN}</b>`;
-    return `<div class="opp${p.isBot ? '' : ' human'}">
+    return `<div class="opp${p.isBot ? '' : ' human'}" data-pid="${p.id}">
       <span class="avatar">${p.avatar}</span>
       <span class="opp-body">
         <span class="opp-name">${p.name}${hostBadge}</span>
@@ -194,8 +194,41 @@ async function flashRow(index) {
   state.lastPlaced = null;
 }
 
-function cheapestRowIndex() {
-  let best = [];
+function spawnDonutRain(pid, pts) {
+  const target = document.querySelector(`#players .opp[data-pid="${pid}"]`);
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+  const n = Math.max(4, Math.min(14, pts || 3));
+  for (let i = 0; i < n; i++) {
+    const el = document.createElement('span');
+    el.className = 'donut-fall';
+    el.textContent = '🍩';
+    const tx = rect.left + 12 + Math.random() * Math.max(30, rect.width - 34);
+    const ty = rect.top + 6 + Math.random() * Math.max(10, Math.min(30, rect.height - 12));
+    el.style.left = cx + 'px';
+    el.style.top = cy + 'px';
+    document.body.appendChild(el);
+    const dx = tx - cx;
+    const dy = ty - cy;
+    const bend = Math.random() * 120 - 60;
+    const rot = Math.random() * 260 - 130;
+    el.animate([
+      { transform: 'translate(-50%,-50%) scale(1.5) rotate(0deg)', opacity: 0 },
+      { transform: 'translate(-50%,-50%) scale(1.15) rotate(40deg)', opacity: 1, offset: .18 },
+      { transform: `translate(calc(-50% + ${dx * .55 + bend}px), calc(-50% + ${dy * .45 - 40}px)) scale(.9) rotate(${rot * .6}deg)`, opacity: 1, offset: .62 },
+      { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(.45) rotate(${rot}deg)`, opacity: .95, offset: .92 },
+      { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(.3) rotate(${rot}deg)`, opacity: 0 }
+    ], { duration: 1050 + Math.random() * 420, delay: i * 60, easing: 'cubic-bezier(.3,.7,.35,1)' })
+      .onfinish = () => el.remove();
+  }
+  target.classList.remove('gain');
+  void target.offsetWidth;
+  target.classList.add('gain');
+}
+
+function cheapestRowIndex() {  let best = [];
   let bestPts = Infinity;
   state.rows.forEach((row, i) => {
     const pts = rowPoints(row);
@@ -262,6 +295,7 @@ async function placeCard(player, card) {
     state.lastPlaced = { rowIndex: idx, card };
     addLog(`${player.avatar} ${player.name}: карта ${card} меньше всех — забирает ряд (${pts} 🍩)!`, player.isBot ? 'bot' : 'you');
     renderAll();
+    if (!player.isBot) spawnDonutRain(player.id, pts);
     await flashRow(idx);
     return;
   }
@@ -275,6 +309,7 @@ async function placeCard(player, card) {
     state.rows[target.i] = [card];
     state.lastPlaced = { rowIndex: target.i, card };
     addLog(`${player.avatar} ${player.name}: шестой енот! Карта ${card} сносит ряд (${pts} 🍩)!`, player.isBot ? 'bot' : 'you');
+    if (!player.isBot) spawnDonutRain(player.id, pts);
   } else {
     target.row.push(card);
     state.lastPlaced = { rowIndex: target.i, card };
@@ -410,7 +445,7 @@ function showGameOver() {
 
   const titleFor = p => {
     if (winners.includes(p)) return '<div class="final-title winner">⭐ Звезда Енотьего Шпионажа!</div>';
-    if (losers.includes(p)) return '<div class="final-title loser">👑 Повелитель Енотов</div>';
+    if (losers.includes(p)) return '<div class="final-title loser">👑 Повелитель Пончиков</div>';
     return '';
   };
 
@@ -493,7 +528,7 @@ function showSoloSetup() {
       <p>У каждого игрока 10 карт. Каждый ход все выкладывают по одной карте, затем они вскрываются и раскладываются в 4 ряда по возрастанию — в ряд с минимальной разницей.</p>
       <p>⚠️ <b>Шестой енот:</b> если ваша карта стала 6-й в ряду — вы забираете весь ряд себе.</p>
       <p>⚠️ <b>Наименьшая карта:</b> если ваша карта меньше всех крайних — вы забираете любой ряд на выбор.</p>
-      <p>Кто набирает 66+ штрафных очков — проигрывает и становится «Повелителем Енотов». Осторожно: карта №55 стоит сразу 7 пончиков! Кратные 10 — по 3, оканчивающиеся на 5 — по 2, остальные — по 1.</p>
+      <p>Кто набирает 66+ штрафных очков — проигрывает и становится «Повелителем Пончиков». Осторожно: карта №55 стоит сразу 7 пончиков! Кратные 10 — по 3, оканчивающиеся на 5 — по 2, остальные — по 1.</p>
     </div>
     <label class="bot-picker">Соперников-ботов:
       <select id="bot-count">${[1, 2, 3, 4].map(n => `<option value="${n}"${n === 3 ? ' selected' : ''}>${n}</option>`).join('')}</select>
