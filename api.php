@@ -14,9 +14,44 @@ const ROUND_PAUSE = 8;
 const TURN_LIMIT = 60;
 const AVATARS = ['🦝', '🐾', '🕵️', '🎩', '🧢', '🌙', '🍩', '🎭'];
 
-const VK_APP_ID = '';
-const VK_APP_SECRET = '';
-const AUTH_SESSION_TTL = 2592000;
+function envLoad(string $path): void {
+    if (!is_file($path)) return;
+    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if (!is_array($lines)) return;
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#' || !str_contains($line, '=')) continue;
+        $pos = strpos($line, '=');
+        $k = trim(substr($line, 0, $pos));
+        $v = trim(substr($line, $pos + 1));
+        $len = strlen($v);
+        if ($len >= 2 && (($v[0] === '"' && $v[$len - 1] === '"') || ($v[0] === "'" && $v[$len - 1] === "'"))) {
+            $v = substr($v, 1, -1);
+        }
+        $_ENV[$k] = $v;
+    }
+}
+envLoad(__DIR__ . '/.env');
+
+function env(string $key, string $default = ''): string {
+    $v = $_ENV[$key] ?? getenv($key);
+    return ($v === false || $v === null || $v === '') ? $default : (string)$v;
+}
+
+define('VK_APP_ID', env('VK_APP_ID', ''));
+define('VK_APP_SECRET', env('VK_APP_SECRET', ''));
+define('AUTH_SESSION_TTL', (int)env('AUTH_SESSION_TTL', '2592000'));
+
+define('REDIS_HOSTS', array_values(array_filter(array_map('trim', explode(',', env('REDIS_HOSTS', '127.0.1.55,127.0.0.1'))))));
+define('REDIS_PORT', (int)env('REDIS_PORT', '6379'));
+
+define('DB_HOST', env('DB_HOST', '127.0.0.1'));
+define('DB_PORT', env('DB_PORT', '3306'));
+define('DB_NAME', env('DB_NAME', 'cows'));
+define('DB_USER', env('DB_USER', 'root'));
+define('DB_PASS', env('DB_PASS', ''));
+
+const LOCK_TTL = 5;
 
 function respond(array $d, int $code = 200): void {
     http_response_code($code);
@@ -28,19 +63,13 @@ function fail(string $msg, int $code = 400): void {
     respond(['ok' => false, 'error' => $msg], $code);
 }
 
-const REDIS_HOSTS = ['127.0.1.55', '127.0.0.1'];
-const REDIS_PORT = 6379;
-const LOCK_TTL = 5;
-
-const DB_DSN = 'mysql:host=127.0.0.1;port=3306;dbname=cows;charset=utf8mb4';
-const DB_USER = 'root';
-const DB_PASS = '';
 
 function db(): PDO {
     static $pdo = null;
     if ($pdo === null) {
         try {
-            $pdo = new PDO(DB_DSN, DB_USER, DB_PASS, [
+            $dsn = 'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME . ';charset=utf8mb4';
+            $pdo = new PDO($dsn, DB_USER, DB_PASS, [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_TIMEOUT => 3,
