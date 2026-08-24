@@ -7,6 +7,11 @@ const LOSE_AT = 66;
 
 const $ = sel => document.querySelector(sel);
 
+const PLAYER_COLORS = ['#e0566b', '#e8a33d', '#4fbf74', '#4f9cf5', '#b07ef0', '#3fc2c9'];
+function playerColor(id) {
+  return PLAYER_COLORS[((id % PLAYER_COLORS.length) + PLAYER_COLORS.length) % PLAYER_COLORS.length];
+}
+
 const els = {
   rows: $('#rows'),
   hand: $('#hand'),
@@ -140,7 +145,7 @@ function renderOpponents() {
       ? '<span class="committed" title="Карта на этот ход заявлена"></span>'
       : '';
     const stats = `Очки: <b>${p.total}</b> · Тур: <b>${roundPts == null ? '—' : '+' + roundPts}</b> · Карт: <b>${handN}</b>`;
-    return `<div class="opp${p.isBot ? '' : ' human'}" data-pid="${p.id}">
+    return `<div class="opp${p.isBot ? '' : ' human'}" data-pid="${p.id}" style="--pc:${playerColor(p.id)}">
       <span class="avatar">${p.avatar}</span>
       <span class="opp-body">
         <span class="opp-name">${p.name}${hostBadge}</span>
@@ -639,6 +644,8 @@ function updateTurnTimerUI() {
 setInterval(() => {
   soloTimeoutAction();
   updateTurnTimerUI();
+  const chatEl = document.getElementById('chat-box');
+  if (chatEl) chatEl.hidden = MODE !== 'mp';
 }, 250);
 
 document.addEventListener('keydown', e => {

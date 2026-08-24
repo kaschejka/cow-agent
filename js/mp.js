@@ -13,6 +13,7 @@ const MP = {
   animatedCount: 0,
   localTurnKey: null,
   modalKey: null,
+  chatLastId: 0,
   submittedKeys: new Set(),
   inLobbyView: false,
   inMenuView: false,
@@ -55,8 +56,40 @@ MP.setSession = function (room, token, you) {
   MP.token = token;
   MP.myId = you;
   MP.version = -1;
-  MP.localTurnKey = null;
+  MP.resetChat();
   MP.saveSession();
+};
+
+MP.resetChat = function () {
+  MP.chatLastId = 0;
+  const log = $('#chat-log');
+  if (log) log.innerHTML = '';
+};
+
+MP.renderChat = function (list) {
+  const log = $('#chat-log');
+  if (!log || !Array.isArray(list)) return;
+  let maxId = MP.chatLastId;
+  const frag = document.createDocumentFragment();
+  for (const m of list) {
+    if (!m || m.id <= MP.chatLastId) continue;
+    if (m.id > maxId) maxId = m.id;
+    const div = document.createElement('div');
+    div.className = 'chat-msg' + (m.pid === MP.myId ? ' mine' : '');
+    if (m.pid != null) div.style.color = m.color || playerColor(m.pid);
+    const head = document.createElement('span');
+    head.className = 'cm-head';
+    head.textContent = `${m.avatar} ${m.name}: `;
+    div.appendChild(head);
+    div.appendChild(document.createTextNode(m.text));
+    frag.appendChild(div);
+  }
+  if (frag.childNodes.length) {
+    log.appendChild(frag);
+    while (log.childNodes.length > 60) log.removeChild(log.firstChild);
+    log.scrollTop = log.scrollHeight;
+  }
+  MP.chatLastId = maxId;
 };
 
 MP.hardReset = function () {
@@ -65,6 +98,7 @@ MP.hardReset = function () {
   MP.room = null;
   MP.token = null;
   MP.myId = null;
+  MP.resetChat();
   MP.version = -1;
   MP.animatedKey = null;
   MP.animatedCount = 0;
@@ -256,6 +290,7 @@ MP.joinRoom = async function (roomId, btn) {
 };
 
 MP.applySnapshot = function (snap) {
+  if (Array.isArray(snap.chat)) MP.renderChat(snap.chat);
   if (snap.version === MP.version) return;
   MP.version = snap.version;
 
@@ -391,6 +426,7 @@ function refreshLocalMeta(snap) {
 
 MP.process = function (snap) {
   MP.turnEndAt = (snap.phase === 'pick' || snap.phase === 'choose_row') ? (snap.turnEndAt || 0) : 0;
+  MP.renderChat(snap.chat || []);
   if (snap.phase === 'pick' && !els.overlay.classList.contains('hidden') && MP.modalKey) {
     els.overlay.classList.add('hidden');
   }
@@ -598,3 +634,22 @@ MP.leave = async function () {
   MP.hardReset();
   showMainMenu();
 };
+
+document.addEventListener('DOMContentLoaded', () => {
+  const chatForm = $('#chat-form');
+  if (!chatForm || chatForm.dataset.chatBound) return;
+  chatForm.dataset.chatBound = '1';
+  chatForm.addEventListener('submit', async e => {
+    e.preventDefault();
+    const inp = $('#chat-input');
+    const text = (inp.value || '').trim();
+    if (!text) return;
+    inp.value = '';
+    try {
+      await mpApi('chat', { text });
+      MP.tick();
+    } catch (err) {
+      addLog('Чат: ' + err.message, 'warn');
+    }
+  });
+});

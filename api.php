@@ -82,6 +82,24 @@ function roomKey(string $code): string {
     return 'room:' . $code;
 }
 
+function chatKey(string $code): string {
+    return 'chat:' . $code;
+}
+
+function chatTail(string $code): array {
+    try {
+        $raw = redis()->lRange(chatKey($code), 0, 24);
+    } catch (Throwable $e) {
+        return [];
+    }
+    $out = [];
+    foreach ($raw as $line) {
+        $e = json_decode($line, true);
+        if (is_array($e)) $out[] = $e;
+    }
+    return array_reverse($out);
+}
+
 function cardPoints(int $n): int {
     if ($n === 55) return 7;
     if ($n % 10 === 0) return 3;
@@ -217,6 +235,8 @@ function withRoom(string $code, callable $fn) {
         $result = $fn($room);
         if ($result === '__delete') {
             $r->del(roomKey($code));
+            $r->del(chatKey($code));
+            $r->del('chatseq:' . $code);
             return ['__deleted' => true];
         }
         $bump = isset($room['__bump']);
@@ -564,6 +584,7 @@ function snapshot(array $room, int $me): array {
         'pause' => ROUND_PAUSE,
         'turnEndAt' => (int)($room['turnEndAt'] ?? 0),
         'turnLimit' => TURN_LIMIT,
+        'chat' => chatTail($room['code']),
     ];
 }
 
@@ -745,6 +766,37 @@ if ($action === 'state') {
     if ($out === null) fail('Комната закрыта', 410);
     if (isset($out['gone'])) fail('Вы не в этой комнате', 401);
     respond($out);
+}
+
+if ($action === 'chat') {
+    $code = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string)($body['room'] ?? '')));
+    $token = (string)($body['token'] ?? '');
+    $text = trim((string)($body['text'] ?? ''));
+    if ($text === '') fail('Пустое сообщение');
+    if (mb_strlen($text) > 200) $text = mb_substr($text, 0, 200);
+    $out = withRoom($code, function (array &$room) use ($token) {
+        $idx = findPlayerIdx($room, $token);
+        if ($idx === -1) return ['__unauth' => true];
+        $p = $room['players'][$idx];
+        bumpRoom($room);
+        return ['ok' => true, 'p' => ['id' => $p['id'], 'name' => $p['name'], 'avatar' => $p['avatar']]];
+    });
+    if ($out === null || isset($out['__unauth'])) fail('Вы не в этой комнате', 401);
+    $r = redis();
+    $id = $r->incr('chatseq:' . $code);
+    $r->expire('chatseq:' . $code, ROOM_TTL);
+    $entry = json_encode([
+        'id' => $id,
+        'pid' => $out['p']['id'],
+        'name' => $out['p']['name'],
+        'avatar' => $out['p']['avatar'],
+        'text' => $text,
+        'ts' => time(),
+    ], JSON_UNESCAPED_UNICODE);
+    $r->lPush(chatKey($code), $entry);
+    $r->lTrim(chatKey($code), 0, 99);
+    $r->expire(chatKey($code), ROOM_TTL);
+    respond(['ok' => true, 'id' => $id]);
 }
 
 $authed = function (callable $fn) use ($body) {
