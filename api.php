@@ -86,6 +86,76 @@ function chatKey(string $code): string {
     return 'chat:' . $code;
 }
 
+const PROFANITY_STEMS = [
+    'хуй', 'хуя', 'хуе', 'хую', 'пизд', 'бляд', 'блях', 'блят',
+    'мудак', 'мудач', 'мудил', 'гандон', 'гондон', 'пидор', 'пидар',
+    'шлюх', 'шалав', 'залуп', 'дроч', 'срак', 'падл', 'гнид',
+];
+const PROFANITY_LATIN = ['huy', 'nahuy', 'pizd', 'blyad', 'ebat', 'ebal', 'suka', 'mudak', 'gandon', 'xyu', 'xyi', 'hui'];
+const PROFANITY_JOIN = [
+    'хуй', 'хуе', 'хуя', 'пизд', 'уеб', 'выеб', 'заеб',
+    'поеб', 'ебан', 'ъеб', 'хуило', 'пидор', 'мудак', 'ахуй', 'наъуй',
+];
+
+function profanityMap(string $s): string {
+    $map = [
+        'ё' => 'е', '@' => 'а', '$' => 'с', '+' => 'т', '0' => 'о', '6' => 'б',
+        'x' => 'х', 'y' => 'у', 'i' => 'и', 'e' => 'е', 'a' => 'а', 'o' => 'о',
+        'p' => 'р', 'c' => 'с', 'b' => 'б', 'm' => 'м', 'k' => 'к', 't' => 'т',
+        'r' => 'р', 'l' => 'л', 'd' => 'д', 'h' => 'х', 'u' => 'у', '3' => 'з',
+        '9' => 'я', '4' => 'ч', 'w' => 'в', 'f' => 'ф', 'g' => 'г', 'z' => 'з',
+        'n' => 'н', 'v' => 'в', 's' => 'с', 'q' => 'к', 'j' => 'ж',
+    ];
+    return strtr($s, $map);
+}
+
+function profanitySquash(string $token): string {
+    $norm = profanityMap(mb_strtolower($token));
+    $letters = preg_replace('/[^a-zа-я]/u', '', $norm) ?? '';
+    return preg_replace('/(.)\\1+/u', '$1', $letters) ?? $letters;
+}
+
+function profanityTokenBad(string $nt, string $orig = ''): bool {
+    if ($nt === '') return false;
+    $ol = mb_strtolower($orig);
+    foreach (PROFANITY_STEMS as $st) {
+        if (mb_strpos($nt, $st) !== false) return true;
+    }
+    foreach (PROFANITY_LATIN as $st) {
+        if (strpos($nt, $st) !== false || ($ol !== '' && strpos($ol, $st) !== false)) return true;
+    }
+    if (preg_match('/(?:^|[аеиоуыэюяъь])еб/u', $nt)) return true;
+    if (preg_match('/(?:^|[аеиоуыэюяъь])хер/u', $nt)) return true;
+    if (preg_match('/(?:^|[аеиоуыэюяъь])у[ъь]?й$/u', $nt)) return true;
+    if ($nt === 'бля' || $nt === 'хуа' || $nt === 'сука' || $nt === 'суки' || $nt === 'сукин') return true;
+    return false;
+}
+
+function filterProfanity(string $text): string {
+    $tokens = preg_split('/(\s+)/u', $text, -1, PREG_SPLIT_DELIM_CAPTURE);
+    if (!is_array($tokens)) return '***';
+    $norms = [];
+    foreach ($tokens as $i => $tok) {
+        $norms[$i] = ($i % 2 === 0) ? profanitySquash($tok) : '';
+    }
+    $joined = implode('', array_values(array_filter($norms, fn($v) => $v !== '')));
+    $whole = false;
+    foreach (PROFANITY_JOIN as $st) {
+        if (mb_strpos($joined, $st) !== false) { $whole = true; break; }
+    }
+    if ($whole) return str_repeat('*', min(12, max(3, mb_strlen($text))));
+    $bad = [];
+    foreach ($norms as $i => $nt) {
+        if ($i % 2 === 0 && profanityTokenBad($nt, $tokens[$i])) $bad[] = $i;
+    }
+    if (!$bad) return $text;
+    foreach ($bad as $i) {
+        $len = mb_strlen($tokens[$i]);
+        $tokens[$i] = $len > 1 ? mb_substr($tokens[$i], 0, 1) . str_repeat('*', $len - 1) : '*';
+    }
+    return implode('', $tokens);
+}
+
 function chatTail(string $code): array {
     try {
         $raw = redis()->lRange(chatKey($code), 0, 24);
@@ -774,6 +844,7 @@ if ($action === 'chat') {
     $text = trim((string)($body['text'] ?? ''));
     if ($text === '') fail('Пустое сообщение');
     if (mb_strlen($text) > 200) $text = mb_substr($text, 0, 200);
+    $text = filterProfanity($text);
     $out = withRoom($code, function (array &$room) use ($token) {
         $idx = findPlayerIdx($room, $token);
         if ($idx === -1) return ['__unauth' => true];
