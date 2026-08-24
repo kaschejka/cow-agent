@@ -12,7 +12,7 @@ const STALE_SECONDS = 90;
 const ROOM_TTL = 43200;
 const ROUND_PAUSE = 8;
 const TURN_LIMIT = 60;
-const REVEAL_PAUSE = 6;
+const REVEAL_PAUSE = 5;
 const AVATARS = ['🦝', '🐾', '🕵️', '🎩', '🧢', '🌙', '🍩', '🎭'];
 
 require __DIR__ . '/core.php';
