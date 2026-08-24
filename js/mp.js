@@ -112,6 +112,7 @@ MP.hardReset = function () {
   MP.inLobbyView = false;
   MP.animating = false;
   MP.queuedSnap = null;
+  MP.disarmAutoPick();
   MP.connecting = false;
   MP.failCount = 0;
   MP.inMenuView = false;
@@ -467,6 +468,14 @@ MP.process = function (snap) {
     mpFastForwardEvents(events.slice(0, MP.appliedCount));
   }
 
+  // Автовыгладка последней карты — после построения состояния,
+  // т.к. armAutoPick читает state через currentPickKey()
+  if (snap.phase === 'pick' && Array.isArray(snap.hand) && snap.hand.length === 1) {
+    MP.armAutoPick(snap.hand[0]);
+  } else {
+    MP.disarmAutoPick();
+  }
+
   const pending = events.slice(MP.appliedCount);
   if (!pending.length) {
     MP.postProcess(snap);
@@ -581,8 +590,27 @@ MP.postProcess = function (snap) {
   }
 };
 
+// Последняя карта в руке разыгрывается автоматически
+MP.armAutoPick = function (card) {
+  if (!state) return;
+  if (MP.submittedKeys.has(currentPickKey())) return;
+  if (MP.autoPickTimer) return;
+  addLog('Последняя карта — разыгрывается автоматически.', 'sys');
+  MP.autoPickTimer = setTimeout(() => {
+    MP.autoPickTimer = null;
+    if (!state || state.phase !== 'pick' || !MP.canAct()) return;
+    if (!state.players[0].hand.includes(card)) return;
+    MP.submitCard(card);
+  }, 500);
+};
+
+MP.disarmAutoPick = function () {
+  if (MP.autoPickTimer) { clearTimeout(MP.autoPickTimer); MP.autoPickTimer = null; }
+};
+
 MP.submitCard = function (card) {
   if (!state || !MP.canAct()) return;
+  MP.disarmAutoPick();
   MP.submittedKeys.add(currentPickKey());
   state.phase = 'locked';
   state.stripHint = 'Карта сыграна — ждём остальных игроков...';
@@ -619,6 +647,8 @@ MP.showRoundSummary = function (snap) {
       count: s.count,
       roundPts: s.roundPts,
       total: s.total,
+      place: s.place,
+      ratingDelta: s.ratingDelta,
     }));
   els.overlayContent.innerHTML = `
     <h2>📋 Конец тура ${snap.round}</h2>
@@ -658,6 +688,8 @@ MP.showGameOver = function (snap) {
     if (losers.includes(s)) return '<div class="final-title loser">👑 Повелитель Пончиков</div>';
     return '';
   };
+  const deltaBadge = s => s.ratingDelta == null ? '' :
+    ` <span class="rating-delta ${s.ratingDelta >= 0 ? 'up' : 'down'}">★${s.ratingDelta >= 0 ? '+' : ''}${s.ratingDelta}</span>`;
 
   // Реванш — только вдвоём и только при согласии обоих
   const humans = (snap.players || []).filter(p => !p.isBot);
@@ -686,7 +718,7 @@ MP.showGameOver = function (snap) {
     <p class="subtitle">Побед${winners.length > 1 ? 'или' : 'ил'} ${winners.map(w => escapeHtml(w.name)).join(', ')} — всего ${minScore} штрафных очков!</p>
     ${sorted.map(s => `
       <div style="margin-bottom:10px">
-        <strong>${s.avatar} ${escapeHtml(s.name)}</strong> — ${s.total} очков
+        <strong>${s.avatar} ${escapeHtml(s.name)}</strong> — ${s.total} очков${deltaBadge(s)}
         ${titleFor(s)}
       </div>`).join('')}
     ${rematchHtml}

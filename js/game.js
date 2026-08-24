@@ -141,6 +141,9 @@ function renderOpponents() {
       ? p.committed
       : (state.played && state.played.some(e => e.player === p));
     const hostBadge = p.host ? ' 👑' : '';
+    const ratingBadge = p.rating != null
+      ? ` <span class="rating-badge" title="Рейтинг">★${p.rating}</span>`
+      : '';
     const right = committed
       ? '<span class="committed" title="Карта на этот ход заявлена"></span>'
       : '';
@@ -148,7 +151,7 @@ function renderOpponents() {
     return `<div class="opp${p.isBot ? '' : ' human'}" data-pid="${p.id}" style="--pc:${playerColor(p.id)}">
       <span class="avatar">${p.avatar}</span>
       <span class="opp-body">
-        <span class="opp-name">${p.name}${hostBadge}</span>
+        <span class="opp-name">${p.name}${hostBadge}${ratingBadge}</span>
         <span class="opp-stats">${stats}</span>
       </span>
       <span class="opp-right">${right}</span>
@@ -332,6 +335,19 @@ async function playTurn() {
   renderAll();
   armSoloTimer();
 
+  // Последняя карта в руке разыгрывается автоматически
+  const human = state.players[0];
+  if (human.hand.length === 1) {
+    const lastCard = human.hand[0];
+    addLog('Последняя карта — разыгрывается автоматически.', 'sys');
+    setTimeout(() => {
+      if (state && state.phase === 'pick'
+        && typeof state.resolveHumanCard === 'function'
+        && state.players[0].hand.includes(lastCard)) {
+        state.resolveHumanCard(lastCard);
+      }
+    }, 700);
+  }
 
   const humanCard = await new Promise(resolve => { state.resolveHumanCard = resolve; });
   disarmSoloTimer();
@@ -404,10 +420,13 @@ function endRound() {
 }
 
 function scoreTableHtml(entries) {
+  const placeIcon = n => n === 1 ? '🥇' : n === 2 ? '🥈' : n === 3 ? '🥉' : `#${n}`;
+  const deltaHtml = e => e.ratingDelta == null ? '' :
+    ` <span class="rating-delta ${e.ratingDelta >= 0 ? 'up' : 'down'}">★${e.ratingDelta >= 0 ? '+' : ''}${e.ratingDelta}</span>`;
   return `<table class="score-table">
     <tr><th>Игрок</th><th>Карт забрано</th><th>Очки за тур</th><th>Всего очков</th></tr>
     ${entries.map(e => `<tr class="${e.me ? 'me' : ''}">
-      <td>${e.avatar} ${e.name}</td>
+      <td>${e.place != null ? placeIcon(e.place) + ' ' : ''}${e.avatar} ${e.name}${deltaHtml(e)}</td>
       <td>${e.count}</td>
       <td class="pts-round">+${e.roundPts}</td>
       <td class="pts-total">${e.total}</td>

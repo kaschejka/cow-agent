@@ -220,7 +220,25 @@ function sendConfirmEmail(array $u): void {
 }
 
 function authPublicUser(array $u): array {
-    return ['userId' => (int)$u['id'], 'name' => (string)$u['name'], 'provider' => (string)$u['provider'], 'login' => (string)$u['login']];
+    $out = ['userId' => (int)$u['id'], 'name' => (string)$u['name'], 'provider' => (string)$u['provider'], 'login' => (string)$u['login']];
+    try {
+        $rows = ratingFetchMap(db(), [(int)$u['id']]);
+        $r = $rows[(int)$u['id']] ?? ratingRowDefault((int)$u['id']);
+        $out['rating'] = (int)$r['rating'];
+        $out['stats'] = [
+            'games'      => (int)$r['games'],
+            'wins'       => (int)$r['wins'],
+            'top3'       => (int)$r['top3'],
+            'winStreak'  => (int)$r['win_streak'],
+            'bestStreak' => (int)$r['best_streak'],
+            'avgPenalty' => (int)$r['games'] > 0 ? (int)round(((int)$r['sum_penalty']) / (int)$r['games']) : null,
+            'bestGame'   => $r['best_game'] !== null ? (int)$r['best_game'] : null,
+            'worstGame'  => $r['worst_game'] !== null ? (int)$r['worst_game'] : null,
+            'sixthTakes' => (int)$r['sixth_takes'],
+            'forcedTakes'=> (int)$r['forced_takes'],
+        ];
+    } catch (Throwable $e) { /* профиль без статистики не критичен */ }
+    return $out;
 }
 
 function authRespondUser(array $u): void {
@@ -373,6 +391,8 @@ function applyTake(array &$room, int $pid, int $card, int $rowIdx, string $kind)
     $taken = $room['rows'][$rowIdx];
     $pts = rowPoints($taken);
     $room['players'][$pid]['taken'] = array_merge($room['players'][$pid]['taken'], $taken);
+    if ($kind === 'sixth') $room['players'][$pid]['sixthTakes'] = ($room['players'][$pid]['sixthTakes'] ?? 0) + 1;
+    elseif ($kind === 'forced') $room['players'][$pid]['forcedTakes'] = ($room['players'][$pid]['forcedTakes'] ?? 0) + 1;
     $room['rows'][$rowIdx] = [$card];
     $room['lastEvents'][] = [
         't' => $kind,
@@ -434,6 +454,98 @@ function advanceResolve(array &$room): void {
     finishTurn($room);
 }
 
+/**
+ * Итоги партии: места, попарный Эло и статистика — одной транзакцией в MySQL.
+ * Рейтинговая партия — только при двух и более живых людях с аккаунтом.
+ * Обогащает $summary (place/ratingDelta) и вешает ratingDelta на игроков комнаты.
+ */
+function saveRatedGame(array &$room, array &$summary): void {
+    try {
+        $humans = [];
+        foreach ($room['players'] as $i => $p) {
+            if (!empty($p['isBot']) || !isset($p['userId'])) continue;
+            $humans[] = [
+                'idx'    => $i,
+                'pid'    => $p['id'],
+                'uid'    => (int)$p['userId'],
+                'total'  => (int)$p['total'],
+                'sixth'  => (int)($p['sixthTakes'] ?? 0),
+                'forced' => (int)($p['forcedTakes'] ?? 0),
+            ];
+        }
+        if (count($humans) < 2) return;
+        usort($humans, fn($a, $b) => $a['total'] <=> $b['total']);
+
+        $pdo = db();
+        $pdo->beginTransaction();
+        $rows = ratingFetchMap($pdo, array_column($humans, 'uid'));
+        $standings = [];
+        foreach ($humans as $h) {
+            $h['rating'] = isset($rows[$h['uid']]) ? (int)$rows[$h['uid']]['rating'] : RATING_START;
+            $standings[] = $h;
+        }
+        $res = ratingCompute($standings);
+
+        $stG = $pdo->prepare('INSERT INTO games (room_code, finished_at) VALUES (?, ?)');
+        $stG->execute([(string)$room['code'], time()]);
+        $gid = (int)$pdo->lastInsertId();
+
+        $stP = $pdo->prepare('INSERT INTO game_players
+            (game_id, user_id, place, total, sixth_takes, forced_takes, rating_before, rating_after)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        foreach ($standings as $i => $h) {
+            $stP->execute([
+                $gid, $h['uid'], (int)$res['places'][$i], $h['total'],
+                $h['sixth'], $h['forced'], $h['rating'], (int)$res['newRating'][$h['uid']],
+            ]);
+        }
+
+        foreach ($standings as $i => $h) {
+            $uid = $h['uid'];
+            $old = $rows[$uid] ?? ratingRowDefault($uid);
+            $place = (int)$res['places'][$i];
+            $win = $place === 1 ? 1 : 0;
+            $streak = $win ? (int)$old['win_streak'] + 1 : 0;
+            $row = [
+                'user_id'     => $uid,
+                'rating'      => (int)$res['newRating'][$uid],
+                'games'       => (int)$old['games'] + 1,
+                'wins'        => (int)$old['wins'] + $win,
+                'top3'        => (int)$old['top3'] + ($place <= 3 ? 1 : 0),
+                'sum_penalty' => (int)$old['sum_penalty'] + $h['total'],
+                'best_game'   => $old['best_game'] === null ? $h['total'] : min((int)$old['best_game'], $h['total']),
+                'worst_game'  => $old['worst_game'] === null ? $h['total'] : max((int)$old['worst_game'], $h['total']),
+                'win_streak'  => $streak,
+                'best_streak' => max((int)$old['best_streak'], $streak),
+                'sixth_takes' => (int)$old['sixth_takes'] + $h['sixth'],
+                'forced_takes'=> (int)$old['forced_takes'] + $h['forced'],
+            ];
+            ratingUpsert($pdo, $row);
+        }
+        $pdo->commit();
+
+        // Отражаем результат в комнате и сводке для клиентов
+        $byPid = [];
+        foreach ($standings as $i => $h) {
+            $delta = (int)$res['deltas'][$h['uid']];
+            $room['players'][$h['idx']]['rating'] = (int)$res['newRating'][$h['uid']];
+            $room['players'][$h['idx']]['ratingDelta'] = $delta;
+            $room['players'][$h['idx']]['place'] = (int)$res['places'][$i];
+            $byPid[$h['pid']] = ['place' => (int)$res['places'][$i], 'delta' => $delta];
+        }
+        foreach ($summary as &$s) {
+            if (isset($byPid[$s['pid']])) {
+                $s['place'] = $byPid[$s['pid']]['place'];
+                $s['ratingDelta'] = $byPid[$s['pid']]['delta'];
+            }
+        }
+        unset($s);
+    } catch (Throwable $e) {
+        // Сбой БД не должен ломать игру: партия просто останется без рейтинга
+        if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
+    }
+}
+
 function finishTurn(array &$room): void {
     $room['queue'] = null;
     $room['qIndex'] = 0;
@@ -460,6 +572,7 @@ function finishTurn(array &$room): void {
             ];
         }
         unset($p);
+        if ($over) saveRatedGame($room, $summary);
         $room['summary'] = $summary;
         $room['phase'] = $over ? 'game_end' : 'round_end';
         if (!$over) $room['roundEndAt'] = time();
@@ -617,6 +730,8 @@ function snapshot(array $room, int $me): array {
             'takenPts' => rowPoints($p['taken']),
             'total' => $p['total'],
             'committed' => $p['card'] !== null,
+            'rating' => isset($p['rating']) ? (int)$p['rating'] : null,
+            'ratingDelta' => isset($p['ratingDelta']) ? (int)$p['ratingDelta'] : null,
         ];
     }
     $meP = $room['players'][$me];
@@ -873,6 +988,7 @@ if ($action === 'create') {
     $player = makePlayer(0, $name, false);
     if ($cu !== null) {
         $player['userId'] = (int)$cu['id'];
+        $player['rating'] = ratingSnapshot(null, (int)$cu['id']);
     }
     $room = [
         'code' => $code,
@@ -918,6 +1034,7 @@ if ($action === 'join') {
         $p = makePlayer($id, cleanName($cu['name'] ?? ($body['name'] ?? '')), false);
         if ($cu !== null) {
             $p['userId'] = (int)$cu['id'];
+            $p['rating'] = ratingSnapshot(null, (int)$cu['id']);
             $room['userIds'][(int)$cu['id']] = $id;
         }
         $room['players'][] = $p;

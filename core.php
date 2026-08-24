@@ -92,6 +92,7 @@ function db(): PDO {
                 PRIMARY KEY (id),
                 KEY idx_due (status, next_attempt_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            dbMigrateRatings($pdo);
         } catch (PDOException $e) {
             fail('База данных недоступна, попробуйте позже', 503);
         }
@@ -112,6 +113,143 @@ function dbMigrateUsers(PDO $pdo): void {
         $pdo->exec("ALTER TABLE users ADD UNIQUE KEY uq_email (email)");
     } catch (PDOException $e) {
         // индекс уже существует или в данных дубликаты — не критично
+    }
+}
+
+/* ===== Рейтинг и статистика ===== */
+
+function dbMigrateRatings(PDO $pdo): void {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS games (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        room_code CHAR(8) NOT NULL,
+        finished_at INT UNSIGNED NOT NULL,
+        PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS game_players (
+        game_id BIGINT UNSIGNED NOT NULL,
+        user_id INT UNSIGNED NOT NULL,
+        place SMALLINT UNSIGNED NOT NULL,
+        total INT NOT NULL,
+        sixth_takes INT NOT NULL DEFAULT 0,
+        forced_takes INT NOT NULL DEFAULT 0,
+        rating_before INT NOT NULL,
+        rating_after INT NOT NULL,
+        PRIMARY KEY (game_id, user_id),
+        KEY idx_gp_user (user_id, game_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS ratings (
+        user_id INT UNSIGNED NOT NULL PRIMARY KEY,
+        rating INT NOT NULL DEFAULT 1000,
+        games INT NOT NULL DEFAULT 0,
+        wins INT NOT NULL DEFAULT 0,
+        top3 INT NOT NULL DEFAULT 0,
+        sum_penalty INT NOT NULL DEFAULT 0,
+        best_game INT DEFAULT NULL,
+        worst_game INT DEFAULT NULL,
+        win_streak INT NOT NULL DEFAULT 0,
+        best_streak INT NOT NULL DEFAULT 0,
+        sixth_takes INT NOT NULL DEFAULT 0,
+        forced_takes INT NOT NULL DEFAULT 0
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+const RATING_START = 1000;
+const RATING_K = 24.0;
+
+/**
+ * Попарный Эло по местам (place-Elo).
+ * $standings — отсортированный по возрастанию штрафа список:
+ *   [['uid'=>int,'total'=>int,'rating'=>int], ...]
+ * Возвращает ['places'=>[...], 'deltas'=>[uid => float], 'newRating'=>[uid=>int]].
+ */
+function ratingCompute(array $standings, float $k = RATING_K): array {
+    $n = count($standings);
+    $places = [];
+    foreach ($standings as $i => $s) {
+        $place = 1;
+        foreach ($standings as $j => $t) {
+            if ($t['total'] < $s['total']) $place++;
+        }
+        $places[$i] = $place;
+    }
+    $deltas = [];
+    $newRating = [];
+    foreach ($standings as $i => $s) {
+        $uid = (int)$s['uid'];
+        $deltas[$uid] = 0.0;
+        $newRating[$uid] = (float)($s['rating'] ?? RATING_START);
+    }
+    for ($a = 0; $a < $n; $a++) {
+        for ($b = $a + 1; $b < $n; $b++) {
+            $ra = (float)($standings[$a]['rating'] ?? RATING_START);
+            $rb = (float)($standings[$b]['rating'] ?? RATING_START);
+            $sa = $places[$a] < $places[$b] ? 1.0 : ($places[$a] === $places[$b] ? 0.5 : 0.0);
+            $ea = 1.0 / (1.0 + pow(10.0, ($rb - $ra) / 400.0));
+            $d = $k * ($sa - $ea);
+            $ua = (int)$standings[$a]['uid'];
+            $ub = (int)$standings[$b]['uid'];
+            $deltas[$ua] += $d;
+            $deltas[$ub] -= $d;
+        }
+    }
+    foreach ($standings as $i => $s) {
+        $uid = (int)$s['uid'];
+        $newRating[$uid] = (int)round($newRating[$uid] + $deltas[$uid]);
+        $deltas[$uid] = (int)round($deltas[$uid]);
+    }
+    return ['places' => $places, 'deltas' => $deltas, 'newRating' => $newRating];
+}
+
+/** Текущая строка рейтингов или строка с дефолтами для новичка. */
+function ratingRowDefault(int $uid): array {
+    return [
+        'user_id' => $uid, 'rating' => RATING_START, 'games' => 0, 'wins' => 0,
+        'top3' => 0, 'sum_penalty' => 0, 'best_game' => null, 'worst_game' => null,
+        'win_streak' => 0, 'best_streak' => 0, 'sixth_takes' => 0, 'forced_takes' => 0,
+    ];
+}
+
+function ratingFetchMap(PDO $pdo, array $uids): array {
+    if (!$uids) return [];
+    $in = implode(',', array_fill(0, count($uids), '?'));
+    $st = $pdo->prepare("SELECT * FROM ratings WHERE user_id IN ($in)");
+    $st->execute(array_map('intval', $uids));
+    $map = [];
+    foreach ($st->fetchAll() as $row) $map[(int)$row['user_id']] = $row;
+    return $map;
+}
+
+/** Полностью пересчитанная строка статистики после партии — апсертится как есть. */
+function ratingUpsert(PDO $pdo, array $row): void {
+    $st = $pdo->prepare('INSERT INTO ratings
+        (user_id, rating, games, wins, top3, sum_penalty, best_game, worst_game, win_streak, best_streak, sixth_takes, forced_takes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+        rating=VALUES(rating), games=VALUES(games), wins=VALUES(wins), top3=VALUES(top3),
+        sum_penalty=VALUES(sum_penalty), best_game=VALUES(best_game), worst_game=VALUES(worst_game),
+        win_streak=VALUES(win_streak), best_streak=VALUES(best_streak),
+        sixth_takes=VALUES(sixth_takes), forced_takes=VALUES(forced_takes)');
+    $st->execute([
+        (int)$row['user_id'], (int)$row['rating'], (int)$row['games'], (int)$row['wins'],
+        (int)$row['top3'], (int)$row['sum_penalty'],
+        $row['best_game'] !== null ? (int)$row['best_game'] : null,
+        $row['worst_game'] !== null ? (int)$row['worst_game'] : null,
+        (int)$row['win_streak'], (int)$row['best_streak'],
+        (int)$row['sixth_takes'], (int)$row['forced_takes'],
+    ]);
+}
+
+/** Рейтинг для показа в лобби: 1000, если партий ещё не было. */
+function ratingSnapshot(?PDO $pdo, int $uid): int {
+    $own = $pdo === null;
+    if ($own) { try { $pdo = db(); } catch (Throwable $e) { return RATING_START; } }
+    try {
+        $st = $pdo->prepare('SELECT rating FROM ratings WHERE user_id = ?');
+        $st->execute([$uid]);
+        $r = $st->fetch();
+        return $r === false ? RATING_START : (int)$r['rating'];
+    } catch (Throwable $e) {
+        return RATING_START;
     }
 }
 
