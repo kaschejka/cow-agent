@@ -4,6 +4,7 @@
   const TOKEN_KEY = 'cow_auth_token';
   const USER_KEY = 'cow_auth_user';
   let mode = 'login';
+  let vkAppId = '';
 
   const $ = s => document.querySelector(s);
 
@@ -60,8 +61,17 @@
       info.textContent = 'Вы играете как гость. Войдите, чтобы закрепить имя.';
       guest.innerHTML = `
         <button id="auth-login-btn" class="btn primary">Вход</button>
-        <button id="auth-register-btn" class="btn secondary">Регистрация</button>`;
+        <button id="auth-register-btn" class="btn secondary">Регистрация</button>
+        <button id="auth-vk" class="btn secondary">Войти через VK</button>`;
     }
+  }
+
+  async function loadAuthConfig() {
+    try {
+      const cfg = await api('authConfig');
+      vkAppId = cfg.vkAppId || '';
+    } catch { /* сервер недоступен — кнопка останется заблокированной */ }
+    return vkAppId;
   }
 
   async function yaLogin() {
@@ -100,12 +110,16 @@
     mode = m;
     $('#auth-form').classList.remove('hidden');
     $('#auth-name-row').classList.toggle('hidden', mode !== 'register');
+    $('#auth-email-row').classList.toggle('hidden', mode !== 'register');
     $('#auth-submit').textContent = mode === 'login' ? 'Войти' : 'Зарегистрироваться';
     $('#auth-login-btn').classList.toggle('secondary', mode !== 'login');
     $('#auth-login-btn').classList.toggle('primary', mode === 'login');
     $('#auth-register-btn').classList.toggle('primary', mode === 'register');
     $('#auth-register-btn').classList.toggle('secondary', mode !== 'register');
+    $('#auth-error').style.color = '';
     $('#auth-error').textContent = '';
+    const oldResend = $('#auth-resend');
+    if (oldResend) oldResend.remove();
     (mode === 'login' ? $('#auth-login') : $('#auth-name')).focus();
   }
 
@@ -131,19 +145,28 @@
       }
       if (t.id === 'auth-submit') {
         const payload = { login: $('#auth-login').value.trim(), password: $('#auth-pass').value };
-        if (mode === 'register') payload.name = ($('#auth-name').value || '').trim() || payload.login;
+        if (mode === 'register') {
+          payload.name = ($('#auth-name').value || '').trim() || payload.login;
+          payload.email = ($('#auth-email').value || '').trim();
+          const d = await api('register', payload);
+          openForm('login');
+          const ok = $('#auth-error');
+          ok.style.color = '#7ddb8a';
+          ok.textContent = d.message || 'Письмо отправлено — подтвердите почту и войдите.';
+          return;
+        }
         afterLogin(await api(mode, payload));
         return;
       }
       if (t.id === 'auth-vk') {
-        const cfg = await api('authConfig');
-        if (!cfg.vkAppId) {
+        if (!vkAppId) await loadAuthConfig(); // вдруг настроили без перезагрузки страницы
+        if (!vkAppId) {
           $('#auth-error').textContent = 'VK-авторизация не настроена на сервере (нужны VK_APP_ID и VK_APP_SECRET)';
           return;
         }
         const redirect = location.origin + location.pathname;
         localStorage.setItem('cow_vk_redirect', redirect);
-        location.href = 'https://oauth.vk.com/authorize?client_id=' + encodeURIComponent(cfg.vkAppId)
+        location.href = 'https://oauth.vk.com/authorize?client_id=' + encodeURIComponent(vkAppId)
           + '&redirect_uri=' + encodeURIComponent(redirect)
           + '&response_type=code&v=5.199&display=page';
         return;
@@ -158,14 +181,67 @@
         render();
       }
     } catch (err) {
-      $('#auth-error').textContent = err.message;
+      const box = $('#auth-error');
+      box.style.color = '';
+      box.textContent = err.message;
+      // 403 = e-mail не подтверждён: предлагаем выслать письмо повторно
+      if (err.code === 403 && mode === 'login' && !$('#auth-resend')) {
+        const b = document.createElement('button');
+        b.id = 'auth-resend';
+        b.type = 'button';
+        b.className = 'btn secondary';
+        b.textContent = 'Отправить письмо ещё раз';
+        b.addEventListener('click', async () => {
+          try {
+            const d = await api('resend', { login: $('#auth-login').value.trim() });
+            box.style.color = '#7ddb8a';
+            box.textContent = d.message || 'Письмо отправлено.';
+            b.remove();
+          } catch (e2) {
+            box.style.color = '';
+            box.textContent = e2.message;
+          }
+        });
+        document.querySelector('#auth-form .lobby-actions').appendChild(b);
+      }
     }
   });
+
+  // Запуск внутри VK (мини-приложение): тихий вход без формы регистрации
+  async function vkMiniLogin(q) {
+    try {
+      if (!window.vkBridge) {
+        await new Promise((ok, bad) => {
+          const s = document.createElement('script');
+          s.src = 'https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js';
+          s.onload = ok;
+          s.onerror = bad;
+          document.head.appendChild(s);
+        });
+      }
+      const bridge = window.vkBridge.default || window.vkBridge;
+      await bridge.send('VKWebAppInit');
+      let name = '';
+      try {
+        const ui = await bridge.send('VKWebAppGetUserInfo');
+        name = ((ui.first_name || '') + ' ' + (ui.last_name || '')).trim();
+      } catch { /* имя необязательно */ }
+      afterLogin(await api('authVkMini', { params: Object.fromEntries(q.entries()), user: { name } }));
+    } catch (err) {
+      $('#auth-error').textContent = 'Не удалось выполнить вход через VK: ' + err.message;
+    }
+  }
 
   window.AUTH = { getToken, getUser };
 
   (async function init() {
+    await loadAuthConfig();
     render();
+    const q = new URLSearchParams(location.search);
+    if (q.get('vk_app_id') && q.get('vk_user_id') && q.get('sign')) {
+      await vkMiniLogin(q);
+      return;
+    }
     if (getToken()) {
       try {
         const d = await api('me', { authToken: getToken() });

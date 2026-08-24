@@ -12,100 +12,10 @@ const STALE_SECONDS = 90;
 const ROOM_TTL = 43200;
 const ROUND_PAUSE = 8;
 const TURN_LIMIT = 60;
+const REVEAL_PAUSE = 6;
 const AVATARS = ['🦝', '🐾', '🕵️', '🎩', '🧢', '🌙', '🍩', '🎭'];
 
-function envLoad(string $path): void {
-    if (!is_file($path)) return;
-    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    if (!is_array($lines)) return;
-    foreach ($lines as $line) {
-        $line = trim($line);
-        if ($line === '' || $line[0] === '#' || !str_contains($line, '=')) continue;
-        $pos = strpos($line, '=');
-        $k = trim(substr($line, 0, $pos));
-        $v = trim(substr($line, $pos + 1));
-        $len = strlen($v);
-        if ($len >= 2 && (($v[0] === '"' && $v[$len - 1] === '"') || ($v[0] === "'" && $v[$len - 1] === "'"))) {
-            $v = substr($v, 1, -1);
-        }
-        $_ENV[$k] = $v;
-    }
-}
-envLoad(__DIR__ . '/.env');
-
-function env(string $key, string $default = ''): string {
-    $v = $_ENV[$key] ?? getenv($key);
-    return ($v === false || $v === null || $v === '') ? $default : (string)$v;
-}
-
-define('VK_APP_ID', env('VK_APP_ID', ''));
-define('VK_APP_SECRET', env('VK_APP_SECRET', ''));
-define('AUTH_SESSION_TTL', (int)env('AUTH_SESSION_TTL', '2592000'));
-
-define('REDIS_HOSTS', array_values(array_filter(array_map('trim', explode(',', env('REDIS_HOSTS', '127.0.1.55,127.0.0.1'))))));
-define('REDIS_PORT', (int)env('REDIS_PORT', '6379'));
-
-define('DB_HOST', env('DB_HOST', '127.0.0.1'));
-define('DB_PORT', env('DB_PORT', '3306'));
-define('DB_NAME', env('DB_NAME', 'cows'));
-define('DB_USER', env('DB_USER', 'root'));
-define('DB_PASS', env('DB_PASS', ''));
-
-const LOCK_TTL = 5;
-
-function respond(array $d, int $code = 200): void {
-    http_response_code($code);
-    echo json_encode($d, JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
-function fail(string $msg, int $code = 400): void {
-    respond(['ok' => false, 'error' => $msg], $code);
-}
-
-
-function db(): PDO {
-    static $pdo = null;
-    if ($pdo === null) {
-        try {
-            $dsn = 'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME . ';charset=utf8mb4';
-            $pdo = new PDO($dsn, DB_USER, DB_PASS, [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_TIMEOUT => 3,
-            ]);
-            $pdo->exec("CREATE TABLE IF NOT EXISTS users (
-                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                provider VARCHAR(16) NOT NULL,
-                ext_id VARCHAR(191) NOT NULL,
-                login VARCHAR(32) DEFAULT NULL,
-                pass_hash VARCHAR(255) DEFAULT NULL,
-                name VARCHAR(24) NOT NULL,
-                created_at INT UNSIGNED NOT NULL,
-                PRIMARY KEY (id),
-                UNIQUE KEY uidx (provider, ext_id),
-                UNIQUE KEY login (login)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-        } catch (PDOException $e) {
-            fail('База данных недоступна, попробуйте позже', 503);
-        }
-    }
-    return $pdo;
-}
-
-function redis(): Redis {
-    static $r = null;
-    if ($r === null) {
-        $r = new Redis();
-        $ok = false;
-        foreach (REDIS_HOSTS as $host) {
-            if (@$r->connect($host, REDIS_PORT, 1.5)) { $ok = true; break; }
-        }
-        if (!$ok) fail('Хранилище недоступно, попробуйте позже', 503);
-        $r->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE);
-    }
-    return $r;
-}
+require __DIR__ . '/core.php';
 
 function roomKey(string $code): string {
     return 'room:' . $code;
@@ -262,16 +172,51 @@ function authFindUserId(string $provider, string $extId): ?int {
     return $v === false ? null : (int)$v;
 }
 
-function authCreateUser(string $provider, string $extId, string $login, string $name, ?string $passHash): array {
+function authCreateUser(string $provider, string $extId, string $login, string $name, ?string $passHash, ?string $email = null, int $verified = 1): array {
     try {
-        $st = db()->prepare('INSERT INTO users (provider, ext_id, login, pass_hash, name, created_at) VALUES (?, ?, ?, ?, ?, ?)');
-        $st->execute([$provider, $extId, $login !== '' ? $login : null, $passHash, $name, time()]);
+        $st = db()->prepare('INSERT INTO users (provider, ext_id, login, pass_hash, name, email, email_verified, confirm_token, created_at)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        $st->execute([
+            $provider, $extId, $login !== '' ? $login : null, $passHash, $name,
+            $email, $verified, $verified ? null : bin2hex(random_bytes(32)), time(),
+        ]);
         $id = (int)db()->lastInsertId();
     } catch (PDOException $e) {
         if ($e->getCode() === '23000') fail('Такой пользователь уже существует', 409);
         throw $e;
     }
     return authGetUserById($id);
+}
+
+/** Ссылка подтверждения e-mail: APP_URL из .env либо текущий хост запроса. */
+function appUrl(): string {
+    $u = rtrim(env('APP_URL', ''), '/');
+    if ($u !== '') return $u;
+    $https = (($_SERVER['HTTPS'] ?? '') !== '' && ($_SERVER['HTTPS'] ?? '') !== 'off')
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    return ($https ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost');
+}
+
+function buildConfirmLetter(string $name, string $link): string {
+    $n = htmlspecialchars($name, ENT_QUOTES, 'UTF-8');
+    $l = htmlspecialchars($link, ENT_QUOTES, 'UTF-8');
+    return "<div style=\"font:15px/1.6 Arial,sans-serif;color:#222;max-width:520px\">
+      <h2 style=\"margin:0 0 12px\">🦝 Еноты-агенты</h2>
+      <p>Привет, <b>{$n}</b>!</p>
+      <p>Подтвердите почту, чтобы активировать аккаунт (ссылка действует 48 часов):</p>
+      <p style=\"margin:18px 0\"><a href=\"{$l}\" style=\"background:#f5b83d;color:#1c1c28;padding:10px 22px;border-radius:8px;text-decoration:none;font-weight:bold\">Подтвердить почту</a></p>
+      <p style=\"color:#777;font-size:13px\">Если кнопка не работает, скопируйте ссылку в браузер:<br>{$l}</p>
+      <p style=\"color:#777;font-size:13px\">Если вы не регистрировались — просто проигнорируйте это письмо.</p>
+    </div>";
+}
+
+function sendConfirmEmail(array $u): void {
+    $link = appUrl() . '/api.php?action=confirm&token=' . $u['confirm_token'];
+    jobEnqueue('mail.send', [
+        'to' => $u['email'],
+        'subject' => 'Еноты-агенты: подтвердите почту',
+        'html' => buildConfirmLetter((string)$u['name'], $link),
+    ]);
 }
 
 function authPublicUser(array $u): array {
@@ -330,6 +275,7 @@ function withRoom(string $code, callable $fn) {
         $room = is_string($raw) ? json_decode($raw, true) : null;
         if (!is_array($room)) return null;
         autoAdvanceRound($room);
+        autoAdvanceReveal($room);
         checkTurnTimeout($room);
         $result = $fn($room);
         if ($result === '__delete') {
@@ -476,6 +422,15 @@ function advanceResolve(array &$room): void {
         }
         $room['qIndex']++;
     }
+    // Очередь обработана полностью: если среди игроков есть люди,
+    // задерживаемся в фазе reveal, чтобы расклад было видно.
+    foreach ($room['players'] as $p) {
+        if (!$p['isBot']) {
+            $room['phase'] = 'reveal';
+            $room['revealEndAt'] = time() + REVEAL_PAUSE;
+            return;
+        }
+    }
     finishTurn($room);
 }
 
@@ -483,6 +438,7 @@ function finishTurn(array &$room): void {
     $room['queue'] = null;
     $room['qIndex'] = 0;
     $room['waitingFor'] = null;
+    $room['lastEvents'] = [];
     $room['turn']++;
     foreach ($room['players'] as &$p) $p['card'] = null;
     unset($p);
@@ -535,6 +491,16 @@ function autoAdvanceRound(array &$room): void {
     if (time() - (int)($room['roundEndAt'] ?? 0) < ROUND_PAUSE) return;
     bumpRoom($room);
     startRound($room);
+}
+
+// Пауза после раздачи карт по рядам: даём всем увидеть расклад,
+// прежде чем начнётся следующий ход.
+function autoAdvanceReveal(array &$room): void {
+    if (($room['phase'] ?? '') !== 'reveal') return;
+    if (time() < (int)($room['revealEndAt'] ?? 0)) return;
+    bumpRoom($room);
+    finishTurn($room);
+    refreshAfterTransition($room);
 }
 
 function refreshAfterTransition(array &$room): void {
@@ -648,7 +614,7 @@ function snapshot(array $room, int $me): array {
             'host' => $room['hostId'] === $p['id'],
             'handCount' => count($p['hand']),
             'takenCount' => count($p['taken']),
-            'takenPts' => $isMe ? rowPoints($p['taken']) : null,
+            'takenPts' => rowPoints($p['taken']),
             'total' => $p['total'],
             'committed' => $p['card'] !== null,
         ];
@@ -683,8 +649,45 @@ function snapshot(array $room, int $me): array {
         'pause' => ROUND_PAUSE,
         'turnEndAt' => (int)($room['turnEndAt'] ?? 0),
         'turnLimit' => TURN_LIMIT,
+        'rematchYes' => array_map('intval', array_keys(is_array($room['rematch'] ?? null) ? $room['rematch'] : [])),
         'chat' => chatTail($room['code']),
     ];
+}
+
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+// Подтверждение e-mail по ссылке из письма (GET /api.php?action=confirm&token=...)
+if ($method === 'GET' && ($_GET['action'] ?? '') === 'confirm') {
+    header('Content-Type: text/html; charset=utf-8');
+    $t = strtolower(preg_replace('/[^a-f0-9]/i', '', (string)($_GET['token'] ?? '')));
+    $u = null;
+    if (strlen($t) === 64) {
+        $st = db()->prepare('SELECT * FROM users WHERE confirm_token = ? AND email_verified = 0 LIMIT 1');
+        $st->execute([$t]);
+        $u = $st->fetch() ?: null;
+    }
+    if ($u !== null) {
+        $st = db()->prepare('UPDATE users SET email_verified = 1, confirm_token = NULL WHERE id = ?');
+        $st->execute([(int)$u['id']]);
+        $title = 'Почта подтверждена ✔';
+        $msg = 'Аккаунт активирован. Теперь можно войти, используя логин и пароль.';
+        $ok = true;
+    } else {
+        $title = 'Ссылка недействительна';
+        $msg = 'Ссылка уже использована или устарела. Запросите новое письмо на странице входа.';
+        $ok = false;
+    }
+    $home = htmlspecialchars(appUrl(), ENT_QUOTES, 'UTF-8');
+    echo '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
+        . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        . '<title>' . $title . '</title>'
+        . '<meta http-equiv="refresh" content="4;url=' . $home . '"></head>'
+        . '<body style="font:16px/1.6 system-ui,Arial,sans-serif;background:#1c1c28;color:#eee;'
+        . 'display:flex;align-items:center;justify-content:center;height:100vh;margin:0">'
+        . '<div style="text-align:center"><div style="font-size:42px;margin-bottom:10px">' . ($ok ? '🦝' : '😿') . '</div>'
+        . '<h2 style="margin:0 0 8px">' . $title . '</h2><p style="color:#bbb">' . $msg . '</p>'
+        . '<p><a href="' . $home . '" style="color:#f5b83d">Перейти к игре</a></p></div></body></html>';
+    exit;
 }
 
 $body = json_decode((string)file_get_contents('php://input'), true);
@@ -695,11 +698,59 @@ if ($action === 'register') {
     $login = authSanitizeLogin((string)($body['login'] ?? ''));
     $pass = (string)($body['password'] ?? '');
     $name = cleanName($body['name'] ?? $login);
+    $email = strtolower(trim((string)($body['email'] ?? '')));
     if (strlen($login) < 3) fail('Логин: минимум 3 символа (латиница, цифры, . _ - @)');
     if (strlen($pass) < 6) fail('Пароль: минимум 6 символов');
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) fail('Укажите корректный e-mail — на него придёт письмо подтверждения');
+    if (strlen($email) > 191) fail('Слишком длинный e-mail');
     if (authFindUserId('local', $login) !== null) fail('Такой логин уже занят', 409);
-    $u = authCreateUser('local', $login, $login, $name, password_hash($pass, PASSWORD_DEFAULT));
-    authRespondUser($u);
+    $st = db()->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+    $st->execute([$email]);
+    if ($st->fetchColumn() !== false) fail('Эта почта уже используется', 409);
+
+    // Атомарно: учётка (неподтверждённая) + письмо в очередь (outbox)
+    $pdo = db();
+    $now = time();
+    $ctoken = bin2hex(random_bytes(32));
+    try {
+        $pdo->beginTransaction();
+        $st = $pdo->prepare('INSERT INTO users (provider, ext_id, login, pass_hash, name, email, email_verified, confirm_token, created_at)
+                             VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)');
+        $st->execute(['local', $login, $login, password_hash($pass, PASSWORD_DEFAULT), $name, $email, $ctoken, $now]);
+        $uid = (int)$pdo->lastInsertId();
+        $link = appUrl() . '/api.php?action=confirm&token=' . $ctoken;
+        jobEnqueue('mail.send', [
+            'to' => $email,
+            'subject' => 'Еноты-агенты: подтвердите почту',
+            'html' => buildConfirmLetter($name, $link),
+        ], 0, $pdo);
+        $pdo->commit();
+    } catch (PDOException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($e->getCode() === '23000') fail('Такой логин или почта уже заняты', 409);
+        throw $e;
+    }
+    respond(['ok' => true, 'message' => 'Аккаунт создан. На ' . $email . ' отправлено письмо — подтвердите почту и войдите.']);
+}
+
+if ($action === 'resend') {
+    $login = authSanitizeLogin((string)($body['login'] ?? ''));
+    $id = authFindUserId('local', $login);
+    if ($id !== null) {
+        $u = authGetUserById($id);
+        if ($u !== null && (string)$u['email'] !== '' && !(int)$u['email_verified']) {
+            $rl = 'rsl:' . $id;
+            if (!redis()->set($rl, 1, ['nx', 'ex' => 300])) {
+                fail('Письмо уже отправляли недавно — проверьте почту или попробуйте через 5 минут', 429);
+            }
+            $ctoken = bin2hex(random_bytes(32));
+            $st = db()->prepare('UPDATE users SET confirm_token = ? WHERE id = ?');
+            $st->execute([$ctoken, $id]);
+            $u['confirm_token'] = $ctoken;
+            sendConfirmEmail($u);
+        }
+    }
+    respond(['ok' => true, 'message' => 'Если аккаунт существует и не подтверждён — письмо отправлено']);
 }
 
 if ($action === 'login') {
@@ -708,6 +759,9 @@ if ($action === 'login') {
     $id = authFindUserId('local', $login);
     $u = $id !== null ? authGetUserById($id) : null;
     if ($u === null || !password_verify($pass, (string)($u['pass_hash'] ?? ''))) fail('Неверный логин или пароль', 401);
+    if ((string)$u['email'] !== '' && !(int)$u['email_verified']) {
+        fail('Подтвердите e-mail — ссылка отправлена при регистрации. Можно запросить новое письмо.', 403);
+    }
     authRespondUser($u);
 }
 
@@ -772,6 +826,42 @@ if ($action === 'authVk') {
     $u = authGetUserById($id);
     if ($u === null) fail('Ошибка данных пользователя');
     authRespondUser($u);
+}
+
+/** Проверка подписи параметров запуска VK Mini Apps (sha256 от vk_*-параметров + секрет). */
+function vkMiniSignValid(array $p): bool {
+    if (VK_APP_SECRET === '') return false;
+    $pairs = [];
+    foreach ($p as $k => $v) {
+        $k = (string)$k;
+        if ($k !== 'sign' && str_starts_with($k, 'vk_')) $pairs[] = $k . '=' . (string)$v;
+    }
+    sort($pairs);
+    $calc = hash('sha256', implode(',', $pairs) . VK_APP_SECRET);
+    return hash_equals($calc, strtolower((string)($p['sign'] ?? '')));
+}
+
+// Автоматический вход внутри VK (мини-приложение): регистрация не нужна,
+// аккаунт создаётся сам с именем из VK, без e-mail и писем.
+if ($action === 'authVkMini') {
+    if (VK_APP_ID === '' || VK_APP_SECRET === '') fail('Авторизация через VK не настроена на сервере');
+    $p = is_array($body['params'] ?? null) ? $body['params'] : [];
+    if (!vkMiniSignValid($p)) fail('Подпись VK недействительна', 401);
+    $uid = preg_replace('/\D/', '', (string)($p['vk_user_id'] ?? ''));
+    if ($uid === '') fail('Не передан vk_user_id');
+    $nameRaw = is_array($body['user'] ?? null) ? ($body['user']['name'] ?? '') : '';
+    $name = cleanName($nameRaw !== '' ? $nameRaw : 'Игрок VK');
+    $id = authFindUserId('vkmini', $uid);
+    if ($id !== null) {
+        // имя подтягиваем из профиля при каждом входе
+        $st = db()->prepare('UPDATE users SET name = ? WHERE id = ?');
+        $st->execute([$name, $id]);
+    } else {
+        authCreateUser('vkmini', $uid, '', $name, null); // verified=1 по умолчанию
+    }
+    $id = authFindUserId('vkmini', $uid);
+    if ($id === null) fail('Ошибка данных пользователя');
+    authRespondUser(authGetUserById($id));
 }
 
 if ($action === 'create') {
@@ -967,9 +1057,26 @@ switch ($action) {
     }
 
     case 'rematch': {
+        // Реванш только при игре ровно вдвоём (без ботов) и только когда
+        // подтвердят ОБА игрока: первый клик фиксирует согласие,
+        // второй запускает новую партию.
         $out = $authed(function (array &$room, int $idx) {
-            if ($room['players'][$idx]['id'] !== $room['hostId']) return ['ok' => false, 'error' => 'Только хозяин комнаты может начать реванш'];
             if ($room['phase'] !== 'game_end') return ['ok' => false, 'error' => 'Игра ещё не закончилась'];
+            if (count($room['players']) !== 2) return ['ok' => false, 'error' => 'Реванш доступен только в игре вдвоём'];
+            foreach ($room['players'] as $p) {
+                if ($p['isBot']) return ['ok' => false, 'error' => 'Реванш доступен только в игре вдвоём'];
+            }
+            $pid = $room['players'][$idx]['id'];
+            $otherPid = $room['players'][$idx === 0 ? 1 : 0]['id'];
+            $rm = is_array($room['rematch'] ?? null) ? $room['rematch'] : [];
+            if (!empty($rm[$pid])) return ['ok' => true, 'waiting' => true];
+            $rm[$pid] = true;
+            if (empty($rm[$otherPid])) {
+                $room['rematch'] = $rm;
+                bumpRoom($room);
+                return ['ok' => true, 'waiting' => true];
+            }
+            unset($room['rematch']);
             foreach ($room['players'] as &$p) {
                 $p['total'] = 0;
                 $p['taken'] = [];
@@ -980,7 +1087,7 @@ switch ($action) {
             $room['round'] = 0;
             bumpRoom($room);
             startRound($room);
-            return ['ok' => true];
+            return ['ok' => true, 'started' => true];
         });
         if ($out === null) fail('Комната не найдена', 404);
         if (isset($out['__unauth'])) fail('Вы не в этой комнате', 401);

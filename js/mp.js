@@ -9,9 +9,11 @@ const MP = {
   tickBusy: false,
   animating: false,
   queuedSnap: null,
-  animatedKey: null,
-  animatedCount: 0,
-  localTurnKey: null,
+  localStateKey: null,
+  appliedTurnKey: null,
+  appliedCount: 0,
+  announcedTurnKey: null,
+  animGen: 0,
   modalKey: null,
   chatLastId: 0,
   submittedKeys: new Set(),
@@ -100,9 +102,11 @@ MP.hardReset = function () {
   MP.myId = null;
   MP.resetChat();
   MP.version = -1;
-  MP.animatedKey = null;
-  MP.animatedCount = 0;
-  MP.localTurnKey = null;
+  MP.localStateKey = null;
+  MP.appliedTurnKey = null;
+  MP.appliedCount = 0;
+  MP.announcedTurnKey = null;
+  MP.animGen++;
   MP.modalKey = null;
   MP.submittedKeys = new Set();
   MP.inLobbyView = false;
@@ -342,6 +346,7 @@ function mapPhase(snap) {
 
 function stripHintFor(snap) {
   const me = snap.players.find(p => p.id === snap.you);
+  if (snap.phase === 'reveal') return 'Раздаём карты по рядам...';
   if (snap.phase === 'pick' && me && me.committed) return 'Карта сыграна — ждём остальных игроков...';
   if (snap.phase === 'choose_row' && snap.waitingFor !== snap.you) {
     const w = snap.players.find(p => p.id === snap.waitingFor);
@@ -431,35 +436,50 @@ MP.process = function (snap) {
     els.overlay.classList.add('hidden');
   }
 
-  const freshView = !state;
-  const sameTurn = !freshView && MP.localTurnKey === snap.turnKey;
+  const events = snap.events || [];
+  const stateKey = snap.turnKey + '|' + snap.phase;
+  const needRebuild = !state || MP.localStateKey !== stateKey;
 
-  if (!sameTurn) {
-    if (MP.localTurnKey && snap.round === 1 && snap.turn === 1) {
+  if (needRebuild) {
+    const freshView = !state;
+    if (MP.localStateKey && snap.round === 1 && snap.turn === 1) {
       MP.submittedKeys.clear();
       MP.modalKey = null;
     }
     buildLocalState(snap);
-    MP.localTurnKey = snap.turnKey;
-    MP.animatedKey = snap.turnKey;
-    const skipAnim = freshView && snap.phase === 'pick';
-    if (skipAnim) {
-      MP.animatedCount = (snap.events || []).length;
+    MP.localStateKey = stateKey;
+    MP.animGen++;
+    if (freshView && snap.phase === 'pick') {
+      // переподключение посреди хода — сразу финальный стол
       state.rows = snap.rows.map(r => r.slice());
-    } else {
-      MP.animatedCount = 0;
     }
   } else {
     refreshLocalMeta(snap);
   }
 
-  const pending = (snap.events || []).slice(MP.animatedCount);
+  // Счётчик проигранных событий в рамках хода: сервер может отдавать их
+  // порциями (choose_row делит партию надвое), повторно показываем только новое.
+  if (snap.turnKey !== MP.appliedTurnKey) {
+    MP.appliedTurnKey = snap.turnKey;
+    MP.appliedCount = 0;
+  }
+  if (needRebuild && MP.appliedCount > 0) {
+    mpFastForwardEvents(events.slice(0, MP.appliedCount));
+  }
 
-  if (pending.length) {
-    MP.animating = true;
-    MP.animate(pending).then(() => {
-      MP.animatedCount = (snap.events || []).length;
+  const pending = events.slice(MP.appliedCount);
+  if (!pending.length) {
+    MP.postProcess(snap);
+    return;
+  }
+  const gen = MP.animGen;
+  MP.animating = true;
+  MP.animate(pending, gen)
+    .catch(() => {})
+    .then(() => {
       MP.animating = false;
+      if (gen !== MP.animGen) return;
+      MP.appliedCount = Math.max(MP.appliedCount, events.length);
       if (MP.queuedSnap) {
         const q = MP.queuedSnap;
         MP.queuedSnap = null;
@@ -468,13 +488,19 @@ MP.process = function (snap) {
         MP.postProcess(snap);
       }
     });
-  } else {
-    MP.postProcess(snap);
-  }
 };
 
 function mpPlayerById(id) {
   return state.players.find(p => p.id === id) || null;
+}
+
+// Карты уникальны в колоде, поэтому «событие уже применено» определяется
+// по состоянию ряда: place — карта лежит последней; забор — ряд заменён новой картой.
+function mpEventApplied(ev) {
+  const row = state.rows[ev.row];
+  if (!row) return false;
+  if (ev.t === 'place') return row.length > 0 && row[row.length - 1] === ev.card;
+  return row.length === 1 && row[0] === ev.card;
 }
 
 function mpEventText(ev, p) {
@@ -483,35 +509,64 @@ function mpEventText(ev, p) {
   return `${p.avatar} ${p.name} кладёт карту ${ev.card} в ряд ${ev.row + 1}.`;
 }
 
-MP.animate = async function (pending) {
+function mpApplyEvent(ev) {
+  if (ev.t === 'place') {
+    state.rows[ev.row].push(ev.card);
+  } else {
+    const p = mpPlayerById(ev.pid);
+    if (p) {
+      p.taken.push(...ev.cards);
+      p.takenCount = p.taken.length;
+      p.takenPts = (p.takenPts || 0) + ev.pts;
+    }
+    state.rows[ev.row] = [ev.card];
+  }
+  state.lastPlaced = { rowIndex: ev.row, card: ev.card };
+}
+
+// Мгновенно докручивает уже показанные ранее события после перестройки стола.
+function mpFastForwardEvents(evs) {
+  for (const ev of evs) {
+    if (mpEventApplied(ev)) continue;
+    mpApplyEvent(ev);
+    const entry = state.played.find(e => e.player && e.player.id === ev.pid);
+    if (entry) entry.done = true;
+  }
+}
+
+// Вскрытие и распределение — как в одиночной игре: все открытые карты
+// появляются на полосе разом, затем распределяются по одной в порядке возрастания.
+MP.animate = async function (pending, gen) {
+  if (MP.announcedTurnKey !== MP.appliedTurnKey) {
+    MP.announcedTurnKey = MP.appliedTurnKey;
+    addLog(`— Ход ${state.turn + 1}: карты открыты —`, 'sys');
+    renderAll();
+    await sleep(900);
+    if (gen !== undefined && gen !== MP.animGen) return;
+  }
   for (const ev of pending) {
+    if (gen !== undefined && gen !== MP.animGen) return;
+    if (mpEventApplied(ev)) { MP.appliedCount++; continue; }
     const p = mpPlayerById(ev.pid);
     if (!p) continue;
     const entry = state.played.find(e => e.player && e.player.id === ev.pid);
     if (entry) entry.active = true;
     renderPlayedStrip();
-    await sleep(250);
 
-    if (ev.t === 'place') {
-      state.rows[ev.row].push(ev.card);
-    } else {
-      p.taken.push(...ev.cards);
-      p.takenCount = p.taken.length;
-      p.takenPts = (p.takenPts || 0) + ev.pts;
-      state.rows[ev.row] = [ev.card];
-    }
-    state.lastPlaced = { rowIndex: ev.row, card: ev.card };
+    mpApplyEvent(ev);
+    MP.appliedCount++;
     addLog(mpEventText(ev, p), ev.pid === MP.myId ? 'you' : 'bot');
     renderAll();
     if (ev.t !== 'place' && p.id === MP.myId) spawnDonutRain(p.id, ev.pts);
     await flashRow(ev.row);
+    if (gen !== undefined && gen !== MP.animGen) return;
 
     if (entry) {
       entry.active = false;
       entry.done = true;
     }
     renderPlayedStrip();
-    await sleep(120);
+    await sleep(250);
   }
 };
 
@@ -597,13 +652,34 @@ MP.showGameOver = function (snap) {
   const minScore = sorted.length ? sorted[0].total : 0;
   const winners = sorted.filter(s => s.total === minScore);
   const losers = sorted.filter(s => s.total >= LOSE_AT);
-  const meIsHost = snap.hostId === snap.you;
 
   const titleFor = s => {
     if (winners.includes(s)) return '<div class="final-title winner">⭐ Звезда Енотьего Шпионажа!</div>';
     if (losers.includes(s)) return '<div class="final-title loser">👑 Повелитель Пончиков</div>';
     return '';
   };
+
+  // Реванш — только вдвоём и только при согласии обоих
+  const humans = (snap.players || []).filter(p => !p.isBot);
+  const canRematch = snap.phase === 'game_end' && humans.length === 2;
+  const opp = humans.find(p => p.id !== snap.you);
+  const saidYes = snap.rematchYes || [];
+  const meYes = saidYes.includes(snap.you);
+  const oppYes = opp != null && saidYes.includes(opp.id);
+
+  let rematchHtml;
+  if (!canRematch) {
+    rematchHtml = '<p class="subtitle" style="margin-bottom:6px">Реванш доступен в игре вдвоём</p>';
+  } else if (meYes && oppYes) {
+    rematchHtml = '<p class="subtitle">Запускаем реванш…</p>';
+  } else if (meYes) {
+    rematchHtml = '<p class="subtitle">Ждём согласия соперника…</p>';
+  } else if (oppYes) {
+    rematchHtml = `<p class="subtitle">${escapeHtml(opp.name)} хочет реванш!</p>
+      <button id="mp-rematch" class="btn primary">🔄 Согласиться на реванш</button>`;
+  } else {
+    rematchHtml = '<button id="mp-rematch" class="btn primary">🔄 Реванш</button>';
+  }
 
   els.overlayContent.innerHTML = `
     <h2>🏆 Результаты игры</h2>
@@ -613,12 +689,13 @@ MP.showGameOver = function (snap) {
         <strong>${s.avatar} ${escapeHtml(s.name)}</strong> — ${s.total} очков
         ${titleFor(s)}
       </div>`).join('')}
-    ${meIsHost ? '<button id="mp-rematch" class="btn primary">🔄 Реванш</button>' : '<p class="subtitle">Ждём решения хозяина комнаты...</p>'}
-    <button id="mp-exit" class="btn secondary" style="margin-left:10px">В меню</button>`;
+    ${rematchHtml}
+    <button id="mp-exit" class="btn secondary"${canRematch ? ' style="margin-left:10px"' : ''}>В меню</button>`;
   els.overlay.classList.remove('hidden');
 
-  if (meIsHost) {
-    $('#mp-rematch').addEventListener('click', () => {
+  const rb = $('#mp-rematch');
+  if (rb) {
+    rb.addEventListener('click', () => {
       mpApi('rematch').then(() => MP.tick()).catch(e => {
         addLog('Ошибка: ' + e.message, 'warn');
         MP.tick();
