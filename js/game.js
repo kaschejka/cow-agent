@@ -6,6 +6,7 @@ const ROW_COUNT = 4;
 const LOSE_AT = 66;
 
 const $ = sel => document.querySelector(sel);
+const $$ = sel => [...document.querySelectorAll(sel)];
 
 const PLAYER_COLORS = ['#e0566b', '#e8a33d', '#4fbf74', '#4f9cf5', '#b07ef0', '#3fc2c9'];
 function playerColor(id) {
@@ -695,6 +696,107 @@ $('#net-btn').addEventListener('click', () => {
   $('#mp-error').textContent = '';
   $('#net-panel').classList.toggle('hidden');
 });
+
+/* ===== Зал славы: топы за день и неделю ===== */
+
+function escT(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function topsTable(rows, fmt, emptyText) {
+  if (!rows || !rows.length) return `<p class="subtitle" style="margin:4px 0">${emptyText}</p>`;
+  return '<table class="tops-table">' + rows.map((r, i) => {
+    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
+    return `<tr><td class="tops-medal">${medal}</td><td>${escT(r.name)}</td><td class="tops-val">${fmt(r)}</td></tr>`;
+  }).join('') + '</table>';
+}
+
+function periodTopsHtml(p) {
+  const none = 'Партий пока нет';
+  return `
+    <div class="tops-cols">
+      <div><h3 class="tops-period">🏆 Рейтинг</h3>
+        ${topsTable(p.rating, r => `★+${r.delta} <small>(рейтинг ${r.rating})</small>`, none)}</div>
+      <div><h3 class="tops-period">🧼 Самый аккуратный енот</h3>
+        ${topsTable(p.neat, r => `${r.avg} штрафа/партия`, none)}</div>
+      <div><h3 class="tops-period">👑 Повелитель Пончиков</h3>
+        ${topsTable(p.donut, r => `${r.donuts} 🍩`, none)}</div>
+    </div>`;
+}
+
+async function showTops() {
+  els.overlayContent.innerHTML = '<h2>🏆 Зал славы</h2><p class="subtitle">Загрузка…</p>';
+  els.overlay.classList.remove('hidden');
+  let d;
+  try {
+    const res = await fetch('api.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'tops' }),
+    });
+    d = await res.json();
+    if (!d.ok) throw new Error(d.error || 'Ошибка');
+  } catch (e) {
+    els.overlayContent.innerHTML = `<h2>🏆 Зал славы</h2><p class="subtitle">${escT(e.message)}</p>
+      <button id="tops-close" class="btn secondary">Закрыть</button>`;
+    $('#tops-close').addEventListener('click', () => els.overlay.classList.add('hidden'));
+    return;
+  }
+
+  let tab = 'day';
+  const TABS = [['day', '☀️ Сегодня'], ['week', '📅 За неделю'], ['board', '🏆 Топ по рейтингу']];
+
+  const youHtml = d.you
+    ? `<div class="tops-you me">Вы на <b>${d.you.place}</b> месте · ★ ${d.you.rating} · партий: ${d.you.games}</div>`
+    : '<div class="tops-you">Вы пока не в рейтинге — сыграйте сетевую партию с живым игроком.</div>';
+
+  const boardHtml = (() => {
+    const rows = (d.board || []).map((r, i) => `
+      <tr><td class="tops-medal">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1)}</td>
+      <td>${escT(r.name)}</td><td class="tops-val">★ ${r.rating}</td></tr>`).join('');
+    return `${youHtml}
+      <div class="tops-board">${rows
+        ? `<table class="tops-table"><tr><th colspan="3" style="text-align:left">Все игроки</th></tr>${rows}</table>`
+        : '<p class="subtitle" style="margin:4px 0">Рейтинговых партий ещё не было</p>'}</div>`;
+  })();
+
+  const renderBody = () => {
+    $('#tops-body').innerHTML = tab === 'board'
+      ? boardHtml
+      : periodTopsHtml(d[tab]);
+    if (tab === 'board') {
+      const box = $('.tops-board');
+      if (box && d.you && d.you.place > 6) box.scrollTop = box.scrollHeight;
+    }
+  };
+
+  const paintTabs = () => {
+    $$('.tops-tabs .btn').forEach(b => {
+      b.classList.toggle('primary', b.dataset.tab === tab);
+      b.classList.toggle('secondary', b.dataset.tab !== tab);
+    });
+  };
+
+  els.overlayContent.innerHTML = `
+    <h2>🏆 Зал славы</h2>
+    <p class="subtitle">Итоги сетевых партий. 🧼 Самый аккуратный енот — наименьший средний штраф за партию. 👑 Повелитель Пончиков — больше всех штрафных собрал.</p>
+    <div class="tops-tabs">
+      ${TABS.map(([id, label]) => `<button class="btn" data-tab="${id}">${label}</button>`).join('')}
+    </div>
+    <div id="tops-body"></div>
+    <button id="tops-close" class="btn secondary" style="margin-top:10px">Закрыть</button>`;
+
+  $$('.tops-tabs .btn').forEach(b => b.addEventListener('click', () => {
+    tab = b.dataset.tab;
+    paintTabs();
+    renderBody();
+  }));
+  $('#tops-close').addEventListener('click', () => els.overlay.classList.add('hidden'));
+  paintTabs();
+  renderBody();
+}
+
+$('#tops-btn').addEventListener('click', () => showTops());
 
 async function createNetRoom(max) {
   const name = playerName();

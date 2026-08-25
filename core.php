@@ -159,25 +159,24 @@ const RATING_K = 24.0;
 /**
  * Попарный Эло по местам (place-Elo).
  * $standings — отсортированный по возрастанию штрафа список:
- *   [['uid'=>int,'total'=>int,'rating'=>int], ...]
- * Возвращает ['places'=>[...], 'deltas'=>[uid => float], 'newRating'=>[uid=>int]].
+ *   [['total'=>int,'rating'=>int], ...]
+ * Возвращает ['places'=>[...], 'deltas'=>[...], 'newRating'=>[...]] —
+ * индексы массивов соответствуют позициям входного списка.
  */
 function ratingCompute(array $standings, float $k = RATING_K): array {
     $n = count($standings);
     $places = [];
     foreach ($standings as $i => $s) {
         $place = 1;
-        foreach ($standings as $j => $t) {
+        foreach ($standings as $t) {
             if ($t['total'] < $s['total']) $place++;
         }
         $places[$i] = $place;
     }
-    $deltas = [];
+    $deltas = array_fill(0, $n, 0.0);
     $newRating = [];
     foreach ($standings as $i => $s) {
-        $uid = (int)$s['uid'];
-        $deltas[$uid] = 0.0;
-        $newRating[$uid] = (float)($s['rating'] ?? RATING_START);
+        $newRating[$i] = (float)($s['rating'] ?? RATING_START);
     }
     for ($a = 0; $a < $n; $a++) {
         for ($b = $a + 1; $b < $n; $b++) {
@@ -186,16 +185,13 @@ function ratingCompute(array $standings, float $k = RATING_K): array {
             $sa = $places[$a] < $places[$b] ? 1.0 : ($places[$a] === $places[$b] ? 0.5 : 0.0);
             $ea = 1.0 / (1.0 + pow(10.0, ($rb - $ra) / 400.0));
             $d = $k * ($sa - $ea);
-            $ua = (int)$standings[$a]['uid'];
-            $ub = (int)$standings[$b]['uid'];
-            $deltas[$ua] += $d;
-            $deltas[$ub] -= $d;
+            $deltas[$a] += $d;
+            $deltas[$b] -= $d;
         }
     }
     foreach ($standings as $i => $s) {
-        $uid = (int)$s['uid'];
-        $newRating[$uid] = (int)round($newRating[$uid] + $deltas[$uid]);
-        $deltas[$uid] = (int)round($deltas[$uid]);
+        $newRating[$i] = (int)round($newRating[$i] + $deltas[$i]);
+        $deltas[$i] = (int)round($deltas[$i]);
     }
     return ['places' => $places, 'deltas' => $deltas, 'newRating' => $newRating];
 }
@@ -250,6 +246,18 @@ function ratingSnapshot(?PDO $pdo, int $uid): int {
         return $r === false ? RATING_START : (int)$r['rating'];
     } catch (Throwable $e) {
         return RATING_START;
+    }
+}
+
+/** Создаёт строку рейтинга с базовым значением (при регистрации аккаунта). */
+function ratingEnsureRow(?PDO $pdo, int $uid): void {
+    $own = $pdo === null;
+    if ($own) { try { $pdo = db(); } catch (Throwable $e) { return; } }
+    try {
+        $st = $pdo->prepare('INSERT IGNORE INTO ratings (user_id, rating) VALUES (?, ?)');
+        $st->execute([$uid, RATING_START]);
+    } catch (Throwable $e) {
+        // не критично: базовые значения подставляются лениво при чтении
     }
 }
 

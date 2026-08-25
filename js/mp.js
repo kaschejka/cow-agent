@@ -128,7 +128,15 @@ async function mpApi(action, payload) {
   const res = await fetch('api.php', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(Object.assign({ action, room: MP.room, token: MP.token }, payload || {})),
+    body: JSON.stringify(Object.assign(
+      {
+        action,
+        room: MP.room,
+        token: MP.token,
+        authToken: (window.AUTH && typeof AUTH.getToken === 'function') ? AUTH.getToken() : '',
+      },
+      payload || {}
+    )),
   });
   let data = null;
   try { data = await res.json(); } catch { throw new Error('Сервер недоступен'); }
@@ -392,6 +400,8 @@ function mapPlayers(snap) {
     takenPts: p.takenPts,
     total: p.total,
     committed: p.committed,
+    rating: p.rating != null ? p.rating : null,
+    ratingDelta: p.ratingDelta != null ? p.ratingDelta : null,
   }));
 }
 

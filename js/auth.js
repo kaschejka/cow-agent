@@ -16,7 +16,14 @@
 
   function saveAuth(d) {
     localStorage.setItem(TOKEN_KEY, d.authToken);
-    localStorage.setItem(USER_KEY, JSON.stringify({ userId: d.userId, name: d.name, provider: d.provider, login: d.login }));
+    localStorage.setItem(USER_KEY, JSON.stringify({
+      userId: d.userId,
+      name: d.name,
+      provider: d.provider,
+      login: d.login,
+      rating: typeof d.rating === 'number' ? d.rating : null,
+      stats: d.stats || null,
+    }));
   }
 
   function clearAuth() {
@@ -55,7 +62,27 @@
     $('#auth-form').classList.add('hidden');
     const u = getUser();
     if (u) {
-      info.innerHTML = `Вы вошли как <b>${escapeHtmlA(u.name)}</b>`;
+      let statsHtml = '';
+      if (u.stats) {
+        const s = u.stats;
+        const winRate = s.games > 0 ? Math.round((s.wins * 100) / s.games) : 0;
+        const line = (label, val) => `<div class="as-line"><span>${label}</span><b>${val}</b></div>`;
+        const rows =
+          line('Партий', s.games)
+          + line('Побед', `${s.wins} (${winRate}%)`)
+          + line('Топ-3', s.top3)
+          + line('Серия побед', s.winStreak)
+          + line('Лучшая серия', s.bestStreak)
+          + line('Средний штраф', s.avgPenalty != null ? s.avgPenalty : '—')
+          + line('Лучший результат', s.bestGame != null ? s.bestGame : '—')
+          + line('Худший результат', s.worstGame != null ? s.worstGame : '—')
+          + line('Шестой енот', s.sixthTakes)
+          + line('Забрал ряд по выбору', s.forcedTakes);
+        statsHtml = `<div class="auth-stats"><div class="as-rating">★ ${u.rating ?? 1000}</div>${rows}</div>`;
+      } else {
+        statsHtml = '<div class="auth-stats"><div class="as-rating">★ ' + (u.rating != null ? u.rating : 1000) + '</div><div class="as-line"><span>Партий</span><b>пока нет</b></div></div>';
+      }
+      info.innerHTML = `Вы вошли как <b>${escapeHtmlA(u.name)}</b>${statsHtml}`;
       guest.innerHTML = '<button id="auth-logout" class="btn secondary">Выйти</button>';
     } else {
       info.textContent = 'Вы играете как гость. Войдите, чтобы закрепить имя.';
@@ -245,7 +272,7 @@
     if (getToken()) {
       try {
         const d = await api('me', { authToken: getToken() });
-        saveAuth({ authToken: getToken(), userId: d.userId, name: d.name, provider: d.provider, login: d.login });
+        saveAuth({ authToken: getToken(), userId: d.userId, name: d.name, provider: d.provider, login: d.login, rating: d.rating, stats: d.stats });
       } catch (e) {
         if (e.code === 401) clearAuth();
       }

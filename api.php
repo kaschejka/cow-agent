@@ -13,6 +13,7 @@ const ROOM_TTL = 43200;
 const ROUND_PAUSE = 8;
 const TURN_LIMIT = 60;
 const REVEAL_PAUSE = 5;
+const TOPS_LIMIT = 10;
 const AVATARS = ['🦝', '🐾', '🕵️', '🎩', '🧢', '🌙', '🍩', '🎭'];
 
 require __DIR__ . '/core.php';
@@ -181,6 +182,7 @@ function authCreateUser(string $provider, string $extId, string $login, string $
             $email, $verified, $verified ? null : bin2hex(random_bytes(32)), time(),
         ]);
         $id = (int)db()->lastInsertId();
+        ratingEnsureRow(null, $id);
     } catch (PDOException $e) {
         if ($e->getCode() === '23000') fail('Такой пользователь уже существует', 409);
         throw $e;
@@ -456,35 +458,43 @@ function advanceResolve(array &$room): void {
 
 /**
  * Итоги партии: места, попарный Эло и статистика — одной транзакцией в MySQL.
- * Рейтинговая партия — только при двух и более живых людях с аккаунтом.
+ * Рейтингуется любая сетевая партия между живыми игроками (матч только против
+ * ботов не считается). Гость без аккаунта играет с базовым рейтингом 1000:
+ * влияет на дельты соперников, но собственных строк в БД не получает.
  * Обогащает $summary (place/ratingDelta) и вешает ratingDelta на игроков комнаты.
  */
 function saveRatedGame(array &$room, array &$summary): void {
     try {
         $humans = [];
         foreach ($room['players'] as $i => $p) {
-            if (!empty($p['isBot']) || !isset($p['userId'])) continue;
+            if (!empty($p['isBot'])) continue;
             $humans[] = [
                 'idx'    => $i,
                 'pid'    => $p['id'],
-                'uid'    => (int)$p['userId'],
+                'uid'    => isset($p['userId']) ? (int)$p['userId'] : null,
                 'total'  => (int)$p['total'],
                 'sixth'  => (int)($p['sixthTakes'] ?? 0),
                 'forced' => (int)($p['forcedTakes'] ?? 0),
             ];
         }
+        // Против ботов рейтинг не считаем; записывать результаты некому, если нет аккаунтов
         if (count($humans) < 2) return;
+        $uids = array_values(array_filter(array_column($humans, 'uid'), fn($u) => $u !== null));
+        if (!$uids) return;
+
         usort($humans, fn($a, $b) => $a['total'] <=> $b['total']);
 
         $pdo = db();
         $pdo->beginTransaction();
-        $rows = ratingFetchMap($pdo, array_column($humans, 'uid'));
+        $rows = ratingFetchMap($pdo, $uids);
         $standings = [];
         foreach ($humans as $h) {
-            $h['rating'] = isset($rows[$h['uid']]) ? (int)$rows[$h['uid']]['rating'] : RATING_START;
+            $h['rating'] = $h['uid'] !== null && isset($rows[$h['uid']])
+                ? (int)$rows[$h['uid']]['rating']
+                : RATING_START;
             $standings[] = $h;
         }
-        $res = ratingCompute($standings);
+        $res = ratingCompute(array_map(fn($h) => ['total' => $h['total'], 'rating' => $h['rating']], $standings));
 
         $stG = $pdo->prepare('INSERT INTO games (room_code, finished_at) VALUES (?, ?)');
         $stG->execute([(string)$room['code'], time()]);
@@ -494,13 +504,15 @@ function saveRatedGame(array &$room, array &$summary): void {
             (game_id, user_id, place, total, sixth_takes, forced_takes, rating_before, rating_after)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
         foreach ($standings as $i => $h) {
+            if ($h['uid'] === null) continue;
             $stP->execute([
                 $gid, $h['uid'], (int)$res['places'][$i], $h['total'],
-                $h['sixth'], $h['forced'], $h['rating'], (int)$res['newRating'][$h['uid']],
+                $h['sixth'], $h['forced'], $h['rating'], (int)$res['newRating'][$i],
             ]);
         }
 
         foreach ($standings as $i => $h) {
+            if ($h['uid'] === null) continue;
             $uid = $h['uid'];
             $old = $rows[$uid] ?? ratingRowDefault($uid);
             $place = (int)$res['places'][$i];
@@ -508,7 +520,7 @@ function saveRatedGame(array &$room, array &$summary): void {
             $streak = $win ? (int)$old['win_streak'] + 1 : 0;
             $row = [
                 'user_id'     => $uid,
-                'rating'      => (int)$res['newRating'][$uid],
+                'rating'      => (int)$res['newRating'][$i],
                 'games'       => (int)$old['games'] + 1,
                 'wins'        => (int)$old['wins'] + $win,
                 'top3'        => (int)$old['top3'] + ($place <= 3 ? 1 : 0),
@@ -524,11 +536,12 @@ function saveRatedGame(array &$room, array &$summary): void {
         }
         $pdo->commit();
 
-        // Отражаем результат в комнате и сводке для клиентов
+        // Отражаем результат в комнате и сводке для ВСЕХ живых участников
         $byPid = [];
         foreach ($standings as $i => $h) {
-            $delta = (int)$res['deltas'][$h['uid']];
-            $room['players'][$h['idx']]['rating'] = (int)$res['newRating'][$h['uid']];
+            $delta = (int)$res['deltas'][$i];
+            $newRating = (int)$res['newRating'][$i];
+            $room['players'][$h['idx']]['rating'] = $newRating;
             $room['players'][$h['idx']]['ratingDelta'] = $delta;
             $room['players'][$h['idx']]['place'] = (int)$res['places'][$i];
             $byPid[$h['pid']] = ['place' => (int)$res['places'][$i], 'delta' => $delta];
@@ -833,6 +846,7 @@ if ($action === 'register') {
                              VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)');
         $st->execute(['local', $login, $login, password_hash($pass, PASSWORD_DEFAULT), $name, $email, $ctoken, $now]);
         $uid = (int)$pdo->lastInsertId();
+        ratingEnsureRow($pdo, $uid);
         $link = appUrl() . '/api.php?action=confirm&token=' . $ctoken;
         jobEnqueue('mail.send', [
             'to' => $email,
@@ -989,6 +1003,9 @@ if ($action === 'create') {
     if ($cu !== null) {
         $player['userId'] = (int)$cu['id'];
         $player['rating'] = ratingSnapshot(null, (int)$cu['id']);
+    } else {
+        // Незарегистрированный участник в сетевой игре имеет базовый рейтинг
+        $player['rating'] = RATING_START;
     }
     $room = [
         'code' => $code,
@@ -1020,6 +1037,104 @@ if ($action === 'rooms') {
     respond(['ok' => true, 'rooms' => listOpenRooms()]);
 }
 
+/* ===== Зал славы: топы за день и за неделю ===== */
+
+function topsForPeriod(int $since): array {
+    $empty = ['rating' => [], 'neat' => [], 'donut' => []];
+    try {
+        $st = db()->prepare('SELECT u.name AS name,
+               COUNT(*) AS g,
+               SUM(gp.total) AS s,
+               AVG(gp.total) AS avgp,
+               SUM(gp.rating_after - gp.rating_before) AS d,
+               MAX(r.rating) AS cur
+            FROM game_players gp
+            JOIN games gm ON gm.id = gp.game_id
+            JOIN users u ON u.id = gp.user_id
+            LEFT JOIN ratings r ON r.user_id = gp.user_id
+            WHERE gm.finished_at >= ?
+            GROUP BY gp.user_id, u.name');
+        $st->execute([$since]);
+        $rows = $st->fetchAll();
+        if (!$rows) return $empty;
+
+        foreach ($rows as &$r) {
+            foreach (['g', 's', 'd', 'cur'] as $k) $r[$k] = (int)$r[$k];
+            $r['avgp'] = (float)$r['avgp'];
+        }
+        unset($r);
+
+        $rating = $rows;
+        usort($rating, fn($a, $b) => [$b['d'], $b['cur']] <=> [$a['d'], $a['cur']]);
+        $rating = array_slice($rating, 0, TOPS_LIMIT);
+
+        $neat = array_slice(array_values(array_filter($rows, fn($r) => $r['g'] > 0)), 0);
+        usort($neat, fn($a, $b) => [$a['avgp'], $a['g']] <=> [$b['avgp'], $b['g']]);
+        $neat = array_slice($neat, 0, TOPS_LIMIT);
+
+        $donut = $rows;
+        usort($donut, fn($a, $b) => [$b['s'], $b['g']] <=> [$a['s'], $a['g']]);
+        $donut = array_slice($donut, 0, TOPS_LIMIT);
+
+        return [
+            'rating' => array_map(fn($r) => [
+                'name' => $r['name'], 'delta' => $r['d'],
+                'rating' => $r['cur'] ?: RATING_START, 'games' => $r['g'],
+            ], $rating),
+            'neat' => array_map(fn($r) => [
+                'name' => $r['name'], 'avg' => round($r['avgp'], 1), 'games' => $r['g'],
+            ], $neat),
+            'donut' => array_map(fn($r) => [
+                'name' => $r['name'], 'donuts' => $r['s'], 'games' => $r['g'],
+            ], $donut),
+        ];
+    } catch (Throwable $e) {
+        return $empty;
+    }
+}
+
+function topsPayload(): array {
+    $now = time();
+    return ['day' => topsForPeriod($now - 86400), 'week' => topsForPeriod($now - 7 * 86400)];
+}
+
+if ($action === 'tops') {
+    $out = ['ok' => true] + topsPayload();
+    try {
+        $pdo = db();
+        $stB = $pdo->query('SELECT u.name AS name, r.rating AS rating, r.games AS games
+            FROM ratings r JOIN users u ON u.id = r.user_id
+            WHERE r.games > 0
+            ORDER BY r.rating DESC, r.games DESC, u.name ASC
+            LIMIT 100');
+        $out['board'] = array_map(fn($r) => [
+            'name' => $r['name'], 'rating' => (int)$r['rating'], 'games' => (int)$r['games'],
+        ], $stB->fetchAll());
+        $out['total'] = (int)$pdo->query('SELECT COUNT(*) FROM ratings WHERE games > 0')->fetchColumn();
+
+        $cu = currentUser($body);
+        if ($cu !== null) {
+            $stM = $pdo->prepare('SELECT rating, games FROM ratings WHERE user_id = ?');
+            $stM->execute([(int)$cu['id']]);
+            $me = $stM->fetch();
+            if ($me !== false && (int)$me['games'] > 0) {
+                $stP = $pdo->prepare('SELECT COUNT(*) FROM ratings WHERE games > 0 AND rating > ?');
+                $stP->execute([(int)$me['rating']]);
+                $out['you'] = ['place' => (int)$stP->fetchColumn() + 1, 'rating' => (int)$me['rating'], 'games' => (int)$me['games']];
+            } else {
+                $out['you'] = null;
+            }
+        } else {
+            $out['you'] = null;
+        }
+    } catch (Throwable $e) {
+        $out['board'] = [];
+        $out['total'] = 0;
+        $out['you'] = null;
+    }
+    respond($out);
+}
+
 if ($action === 'join') {
     $code = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string)($body['room'] ?? '')));
     $cu = currentUser($body);
@@ -1036,6 +1151,9 @@ if ($action === 'join') {
             $p['userId'] = (int)$cu['id'];
             $p['rating'] = ratingSnapshot(null, (int)$cu['id']);
             $room['userIds'][(int)$cu['id']] = $id;
+        } else {
+            // Незарегистрированный участник в сетевой игре имеет базовый рейтинг
+            $p['rating'] = RATING_START;
         }
         $room['players'][] = $p;
         bumpRoom($room);
