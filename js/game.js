@@ -38,6 +38,15 @@ function canPick() {
   return true;
 }
 
+/* Разрешена ли конкретная карта к выбору. В обучающем режиме можно выбрать
+   только рекомендованную карту; в обычной игре — любую. */
+function cardPickable(c) {
+  if (typeof TUT !== 'undefined' && TUT.active && TUT.required != null) {
+    return c === TUT.required;
+  }
+  return canPick();
+}
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function cardPoints(n) {
@@ -126,12 +135,14 @@ function renderRows() {
 
 function renderHand() {
   const human = state.players[0];
-  const pickable = canPick();
   els.hand.innerHTML = human.hand.map(c =>
-    `<div class="card hand-card p${cardPoints(c)}${ui.selected === c ? ' selected' : ''}${pickable ? ' pickable' : ''}" data-card="${c}">${cardInner(c)}</div>`
+    `<div class="card hand-card p${cardPoints(c)}${ui.selected === c ? ' selected' : ''}${cardPickable(c) ? ' pickable' : ''}" data-card="${c}">${cardInner(c)}</div>`
   ).join('') || '<span class="strip-hint">Рука пуста</span>';
-  els.playBtn.classList.toggle('hidden', !pickable);
-  els.playBtn.disabled = !(pickable && ui.selected != null);
+  const anySel = ui.selected != null && cardPickable(ui.selected);
+  els.playBtn.classList.toggle('hidden', !anySel);
+  els.playBtn.disabled = !anySel;
+  if (typeof TUT !== 'undefined' && TUT.active && anySel) els.playBtn.classList.add('tut-pulse');
+  else els.playBtn.classList.remove('tut-pulse');
 }
 
 function renderOpponents() {
@@ -178,6 +189,11 @@ function renderPlayedStrip() {
 }
 
 function updateStatusBar() {
+  if (typeof TUT !== 'undefined' && TUT.active) {
+    els.roundInfo.textContent = '';
+    els.turnInfo.textContent = '';
+    return;
+  }
   els.roundInfo.textContent = 'Тур ' + state.round;
   els.turnInfo.textContent = 'Ход ' + Math.min(Math.max(state.turn, 1), HAND_SIZE) + '/' + HAND_SIZE;
 }
@@ -601,14 +617,18 @@ function startGame(botCount, timeLimit) {
 
 els.hand.addEventListener('click', e => {
   const cardEl = e.target.closest('.hand-card');
-  if (!cardEl || !canPick()) return;
-  ui.selected = parseInt(cardEl.dataset.card, 10);
+  if (!cardEl) return;
+  const c = parseInt(cardEl.dataset.card, 10);
+  if (!cardPickable(c)) return;
+  if (!canPick()) return;
+  ui.selected = c;
   renderHand();
 });
 
 els.playBtn.addEventListener('click', () => {
   if (!state || !canPick() || ui.selected == null) return;
   const card = ui.selected;
+  if (!cardPickable(card)) return;
   const resolve = state.resolveHumanCard;
   if (!resolve) return;
   state.resolveHumanCard = null;
