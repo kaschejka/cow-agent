@@ -472,20 +472,22 @@ async function tutStageIntro() {
   tutIntroPanels(false);
   const human = tutBuildHuman('Вы');
   human.hand = [12, 41, 78];
+  const bot1 = { id: 1, name: 'Снайпер', isBot: true, avatar: '🐨', hand: [3, 4, 5], taken: [], total: 30, takenPts: 0 };
+  const bot2 = { id: 2, name: 'Опер', isBot: true, avatar: '🐻', hand: [7, 8, 9], taken: [], total: 0, takenPts: 3 };
   const rows = [[3, 9, 14], [27, 33], [50, 52, 55], [64]];
   tutSetState(human, rows, 1);
-  state.players = [human];
+  state.players = [human, bot1, bot2];
   renderAll();
   const card = els.players.querySelector('.opp.human');
   if (card) card.classList.add('tut-target');
 
   tutCoach(
     `🧭 <b>Знакомимся с интерфейсом</b><br><br>
-    Справа — <b>карточки игроков</b>. Твоя подсвечена. В ней три показателя:<br>
-    • <b>Очки</b> — штрафные пончики 🍩, набранные в <b>прошлых раундах</b>.<br>
-    • <b>Тур</b> — «+N»: сколько пончиков ты <b>набрал в этом раунде</b> (когда забираешь ряды).<br>
-    • <b>Карт</b> — сколько карт осталось у тебя в руке.<br><br>
-    Сейчас <b>Очки: 0 · Тур: +0 · Карт: 3</b> — ты ещё ничего не забирал, просто посмотри.`,
+    Справа — <b>карточки игроков</b>. Твоя подсвечена, а рядом — примеры соперников:<br>
+    • <b>Очки</b> — штрафные пончики 🍩, набранные в <b>прошлых раундах</b>. У «Снайпера» — <b>30</b>.<br>
+    • <b>Тур</b> — «+N»: сколько пончиков набрано <b>в этом раунде</b>. У «Опера» — <b>+3</b>.<br>
+    • <b>Карт</b> — сколько карт осталось в руке: у всех сейчас по <b>3</b>.<br><br>
+    У тебя пока <b>Очки: 0 · Тур: +0 · Карт: 3</b> — ты ещё ничего не забирал.`,
     'К Механике 1 →', 'Шаг 1 из 5'
   );
   tutCoachNext(tutStageA);
