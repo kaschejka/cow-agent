@@ -192,8 +192,10 @@ function updateStatusBar() {
   if (typeof TUT !== 'undefined' && TUT.active) {
     els.roundInfo.textContent = '';
     els.turnInfo.textContent = '';
+    $('#status-bar').classList.add('hidden');
     return;
   }
+  $('#status-bar').classList.remove('hidden');
   els.roundInfo.textContent = 'Тур ' + state.round;
   els.turnInfo.textContent = 'Ход ' + Math.min(Math.max(state.turn, 1), HAND_SIZE) + '/' + HAND_SIZE;
 }

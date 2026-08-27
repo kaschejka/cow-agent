@@ -474,6 +474,11 @@ body {
 .tut-coach-phase { font-size: 12px; color: var(--muted); margin-right: auto; font-weight: 700; letter-spacing: .5px; }
 
 /* подсветка объектов */
+.opp.human.tut-target {
+  outline: 3px solid var(--accent); outline-offset: 2px;
+  border-radius: 12px; animation: tutGlow 0.9s ease-in-out infinite;
+  box-shadow: 0 0 0 3px rgba(245, 184, 61, .35);
+}
 .row.tut-target {
   outline: 3px solid var(--accent); outline-offset: 2px;
   border-radius: 12px; animation: tutGlow 0.9s ease-in-out infinite;
