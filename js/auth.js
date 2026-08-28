@@ -154,6 +154,7 @@
     mode = m;
     $('#auth-form').classList.remove('hidden');
     $('#auth-name-row').classList.toggle('hidden', mode !== 'register');
+    $('#auth-login-row').classList.toggle('hidden', mode === 'register');
     $('#auth-email-row').classList.toggle('hidden', mode !== 'register');
     $('#auth-submit').textContent = mode === 'login' ? 'Войти' : 'Зарегистрироваться';
     $('#auth-login-btn').classList.toggle('secondary', mode !== 'login');
@@ -190,8 +191,10 @@
       if (t.id === 'auth-submit') {
         const payload = { login: $('#auth-login').value.trim(), password: $('#auth-pass').value };
         if (mode === 'register') {
-          payload.name = ($('#auth-name').value || '').trim() || payload.login;
-          payload.email = ($('#auth-email').value || '').trim();
+          const email = ($('#auth-email').value || '').trim().toLowerCase();
+          payload.login = email;
+          payload.email = email;
+          payload.name = ($('#auth-name').value || '').trim() || email.split('@')[0];
           const d = await api('register', payload);
           openForm('login');
           const ok = $('#auth-error');
