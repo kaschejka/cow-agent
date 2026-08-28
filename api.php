@@ -135,7 +135,7 @@ function shuffledDeck(): array {
 function cleanName(?string $s): string {
     $s = trim((string)$s);
     $s = preg_replace('/[\x00-\x1F\x7F]/u', '', $s) ?? '';
-    $s = mb_substr($s, 0, 16);
+    $s = mb_substr($s, 0, 64);
     return $s === '' ? 'Игрок' : $s;
 }
 

@@ -72,7 +72,7 @@ function db(): PDO {
                 ext_id VARCHAR(191) NOT NULL,
                 login VARCHAR(32) DEFAULT NULL,
                 pass_hash VARCHAR(255) DEFAULT NULL,
-                name VARCHAR(24) NOT NULL,
+                name VARCHAR(64) NOT NULL,
                 email VARCHAR(191) DEFAULT NULL,
                 email_verified TINYINT(1) NOT NULL DEFAULT 0,
                 confirm_token CHAR(64) DEFAULT NULL,
@@ -116,6 +116,11 @@ function dbMigrateUsers(PDO $pdo): void {
         $pdo->exec("ALTER TABLE users ADD UNIQUE KEY uq_email (email)");
     } catch (PDOException $e) {
         // индекс уже существует или в данных дубликаты — не критично
+    }
+    // Имя пользователя расширено под полное ФИО из VK (было 24 → 64)
+    $nameCol = $pdo->query("SHOW COLUMNS FROM users LIKE 'name'")->fetch(PDO::FETCH_ASSOC);
+    if ($nameCol && strcasecmp((string)($nameCol['Type'] ?? ''), 'varchar(64)') !== 0) {
+        $pdo->exec("ALTER TABLE users MODIFY name VARCHAR(64) NOT NULL");
     }
     // Привязка локального аккаунта к VK id (только один пользователь на один VK id)
     $hasVk = $pdo->query("SHOW COLUMNS FROM users LIKE 'vk_id'")->fetch();
