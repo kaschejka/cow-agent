@@ -130,14 +130,6 @@
     const q = new URLSearchParams(location.search);
     const code = q.get('code');
     if (!code) return;
-    const expected = sessionStorage.getItem('cow_vk_state') || '';
-    sessionStorage.removeItem('cow_vk_state');
-    const state = q.get('state') || '';
-    if (expected && state && state !== expected) {
-      $('#auth-error').textContent = 'Ошибка безопасности VK-входа (state не совпадает). Попробуйте ещё раз.';
-      history.replaceState(null, '', location.pathname);
-      return;
-    }
     history.replaceState(null, '', location.pathname);
     try {
       const redirect = localStorage.getItem('cow_vk_redirect') || vkRedirect();
@@ -207,11 +199,9 @@
         }
         const redirect = vkRedirect();
         localStorage.setItem('cow_vk_redirect', redirect);
-        const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
-        sessionStorage.setItem('cow_vk_state', state);
-        location.href = 'https://id.vk.com/authorize?response_type=code&client_id=' + encodeURIComponent(vkAppId)
+        location.href = 'https://oauth.vk.com/authorize?client_id=' + encodeURIComponent(vkAppId)
           + '&redirect_uri=' + encodeURIComponent(redirect)
-          + '&state=' + encodeURIComponent(state);
+          + '&response_type=code&v=5.199&display=page';
         return;
       }
       if (t.id === 'auth-ya') {
