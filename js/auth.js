@@ -65,13 +65,20 @@
     $('#auth-form').classList.add('hidden');
     const u = getUser();
     if (u) {
-      let statsHtml = '';
+      const rating = u.rating != null ? u.rating : 1000;
+      info.innerHTML = `
+        <div class="auth-summary" id="auth-summary" title="Статистика (нажмите)">
+          <span class="auth-name">${escapeHtmlA(u.name)}</span>
+          <span class="auth-rating">★ ${rating}</span>
+          <span class="auth-caret" id="auth-caret">▾</span>
+        </div>`;
+      let statsHtml = '<div class="auth-stats hidden" id="auth-stats">';
       if (u.stats) {
         const s = u.stats;
         const winRate = s.games > 0 ? Math.round((s.wins * 100) / s.games) : 0;
         const line = (label, val) => `<div class="as-line"><span>${label}</span><b>${val}</b></div>`;
-        const rows =
-          line('Партий', s.games)
+        statsHtml += '<div class="auth-stats-sub">Статистика игрока</div>'
+          + line('Партий', s.games)
           + line('Побед', `${s.wins} (${winRate}%)`)
           + line('Топ-3', s.top3)
           + line('Серия побед', s.winStreak)
@@ -81,12 +88,11 @@
           + line('Худший результат', s.worstGame != null ? s.worstGame : '—')
           + line('Шестой енот', s.sixthTakes)
           + line('Забрал ряд по выбору', s.forcedTakes);
-        statsHtml = `<div class="auth-stats"><div class="as-rating">★ ${u.rating ?? 1000}</div>${rows}</div>`;
       } else {
-        statsHtml = '<div class="auth-stats"><div class="as-rating">★ ' + (u.rating != null ? u.rating : 1000) + '</div><div class="as-line"><span>Партий</span><b>пока нет</b></div></div>';
+        statsHtml += '<div class="as-line"><span>Партий</span><b>пока нет</b></div>';
       }
-      info.innerHTML = `Вы вошли как <b>${escapeHtmlA(u.name)}</b>${statsHtml}`;
-      let actions = insideVk ? '' : '<button id="auth-logout" class="btn secondary">Выйти</button>';
+      statsHtml += '</div>';
+      let actions = statsHtml + (insideVk ? '' : '<button id="auth-logout" class="btn secondary">Выйти</button>');
       // Привязка VK к обычному аккаунту (видна только локально зарегистрированным)
       if (u.provider === 'local') {
         actions += u.vkId
@@ -169,6 +175,17 @@
   }
 
   $('#auth-block').addEventListener('click', async e => {
+    // Клик по свёрнутому блоку профиля: раскрыть/свернуть статистику
+    if (e.target.closest('#auth-summary')) {
+      const stats = $('#auth-stats');
+      if (stats) {
+        const show = stats.classList.contains('hidden');
+        stats.classList.toggle('hidden', !show);
+        const caret = $('#auth-caret');
+        if (caret) caret.textContent = show ? '▴' : '▾';
+      }
+      return;
+    }
     const t = e.target.closest('button');
     if (!t) return;
     try {

@@ -409,8 +409,14 @@ body {
   #chat-log { min-height: 80px; }
 }
 
-.auth-stats { margin-top: 8px; font-size: 13px; }
-.as-rating { font-size: 16px; color: #ffd479; margin-bottom: 4px; }
+.auth-stats { flex: 1 1 100%; margin-top: 8px; font-size: 13px; }
+.auth-summary {
+  display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none;
+}
+.auth-summary:hover .auth-name { text-decoration: underline; }
+.auth-name { font-weight: bold; color: var(--text); }
+.auth-rating { color: #ffd479; font-weight: bold; }
+.auth-caret { color: var(--muted); font-size: 12px; }
 .as-line { display: flex; justify-content: space-between; gap: 12px; padding: 1.5px 0; color: #9a9ab0; }
 .as-line b { color: #eaeaf2; white-space: nowrap; }
 .auth-stats-sub { font-size: 12px; color: #9a9ab0; }
