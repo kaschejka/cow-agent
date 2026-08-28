@@ -326,7 +326,7 @@ body {
 
 #auth-block {
   position: fixed; top: 14px; right: 16px; z-index: 40;
-  width: 280px; margin: 0;
+  width: 380px; margin: 0;
 }
 .auth-row { text-align: left; font-size: 13px; color: var(--muted); }
 .muted { opacity: .7; }
