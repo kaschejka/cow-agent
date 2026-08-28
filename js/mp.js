@@ -161,34 +161,48 @@ MP.stopPoll = function () {
 MP.renderRooms = function (rooms) {
   const box = $('#mp-rooms');
   if (!box) return;
-  let html = '';
+  MP._expandedRoom = MP._expandedRoom || {};
+  const mybar = $('#mp-mybar');
+  let myBarHtml = '';
   if (MP.room && MP.token) {
     const mine = rooms.find(r => r.id === MP.room);
     const cnt = mine ? `${mine.players}/${mine.max}` : '';
-    html += `
+    myBarHtml = `
       <div class="my-room-bar">
         <span>Ваша комната${cnt ? ' — игроков: ' + cnt : ''}. Игра начнётся автоматически.</span>
         <button class="btn secondary rr-leave" data-leave="1">Покинуть</button>
       </div>`;
   }
+  if (mybar) mybar.innerHTML = myBarHtml;
   if (!rooms.length) {
-    html += '<p class="subtitle" style="text-align:center">Пока нет открытых комнат — нажмите «Сетевая игра»!</p>';
-    box.innerHTML = html;
+    box.innerHTML = '<p class="subtitle" style="text-align:center">Пока нет открытых комнат — нажмите «Сетевая игра»!</p>';
     return;
   }
-  html += `
+  let html = `
     <table class="room-table">
-      <tr><th>Хост</th><th>Игроки</th><th></th></tr>
+      <tr><th>Комната</th><th>Ср. рейтинг</th><th>Игроки</th><th></th></tr>
       ${rooms.map(r => {
         const mine = MP.room === r.id;
+        const open = !!MP._expandedRoom[r.id];
+        const members = (r.members || []).map((m, i) => `
+          <div class="rm-item${i === 0 ? ' rm-host' : ''}">
+            <span class="rm-name">${i === 0 ? '👑 ' : ''}${escapeHtml(m.name)}</span>
+            <span class="rm-rating">★ ${m.rating}</span>
+          </div>`).join('') || '<div class="rm-item rm-empty">—</div>';
         return `
-        <tr>
-          <td>👑 ${escapeHtml(r.host)}</td>
+        <tbody class="rr-group${mine ? ' rr-group-mine' : ''}">
+        <tr class="rr-head" data-roomrow="${escapeHtml(r.id)}">
+          <td><span class="rr-caret">${open ? '▾' : '▸'}</span> ${escapeHtml(r.name)}${mine ? ' <span class="rr-mine">(ваша)</span>' : ''}</td>
+          <td><span class="rt-avg">★ ${r.avgRating}</span></td>
           <td>${r.players}/${r.max}</td>
           <td class="rt-action">${mine
             ? '<span class="rr-mine">ваша комната</span>'
             : `<button class="btn secondary rr-join" data-room="${escapeHtml(r.id)}">Войти</button>`}</td>
-        </tr>`;
+        </tr>
+        <tr class="rr-members${open ? '' : ' hidden'}" data-members="${escapeHtml(r.id)}">
+          <td colspan="4"><div class="rm-list">${members}</div></td>
+        </tr>
+        </tbody>`;
       }).join('')}
     </table>`;
   box.innerHTML = html;

@@ -846,11 +846,30 @@ $('#net-panel').addEventListener('click', e => {
 });
 
 $('#mp-rooms').addEventListener('click', e => {
-  if (e.target.closest('[data-leave]')) { MP.leaveFromMenu(); return; }
   const btn = e.target.closest('[data-room]');
-  if (!btn || btn.disabled) return;
-  btn.disabled = true;
-  MP.joinRoom(btn.dataset.room, btn);
+  if (btn && !btn.disabled) {
+    btn.disabled = true;
+    MP.joinRoom(btn.dataset.room, btn);
+    return;
+  }
+  const head = e.target.closest('[data-roomrow]');
+  if (!head) return;
+  const id = head.dataset.roomrow;
+  const group = head.closest('.rr-group');
+  if (!group) return;
+  MP._expandedRoom = MP._expandedRoom || {};
+  const open = !MP._expandedRoom[id];
+  MP._expandedRoom[id] = open;
+  const members = group.querySelector('.rr-members');
+  const caret = group.querySelector('.rr-caret');
+  if (members) members.classList.toggle('hidden', !open);
+  if (caret) caret.textContent = open ? '▾' : '▸';
+});
+
+const mpMybar = $('#mp-mybar');
+if (mpMybar) mpMybar.addEventListener('click', e => {
+  if (!e.target.closest('[data-leave]')) return;
+  MP.leaveFromMenu();
 });
 
 (function boot() {

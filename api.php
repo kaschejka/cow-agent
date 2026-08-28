@@ -263,19 +263,44 @@ function listOpenRooms(): array {
     foreach ($r->keys('room:*') ?: [] as $key) {
         $room = json_decode((string)$r->get($key), true);
         if (!is_array($room) || ($room['phase'] ?? '') !== 'lobby') continue;
-        $host = '?';
-        foreach ($room['players'] as $p) {
-            if ($p['id'] === ($room['hostId'] ?? null)) { $host = $p['name']; break; }
+        $code = $room['code'];
+        $sum = 0;
+        $members = [];
+        foreach ($room['players'] ?? [] as $p) {
+            $rt = (int)($p['rating'] ?? RATING_START);
+            $sum += $rt;
+            $members[] = ['name' => (string)($p['name'] ?? 'Игрок'), 'rating' => $rt];
         }
+        $cnt = count($members);
         $out[] = [
-            'id' => $room['code'],
-            'host' => $host,
-            'players' => count($room['players']),
+            'id' => $code,
+            'name' => (string)($room['name'] ?? ('Комната ' . $code)),
+            'players' => $cnt,
             'max' => (int)($room['maxPlayers'] ?? MAX_PLAYERS),
+            'avgRating' => $cnt > 0 ? (int)round($sum / $cnt) : (int)RATING_START,
+            'members' => $members,
         ];
     }
-    usort($out, fn($a, $b) => [$b['players'], $a['host']] <=> [$a['players'], $b['host']]);
+    usort($out, fn($a, $b) => $b['players'] <=> $a['players']);
     return $out;
+}
+
+$ROOM_ADJ = ['Секретная', 'Ночная', 'Тайная', 'Кодовая', 'Шпионская', 'Засекреченная', 'Скрытная', 'Бесшумная', 'Молниеносная', 'Смелая', 'Дерзкая', 'Хитрая', 'Дикая', 'Плутовская', 'Шкодная', 'Неуловимая', 'Космическая', 'Магическая', 'Огненная', 'Ледяная', 'Гениальная', 'Опасная'];
+$ROOM_NOUN = ['Миссия', 'Операция', 'Задача', 'Вылазка', 'Разведка', 'Слежка', 'Диверсия', 'Передача', 'Депеша', 'Уловка', 'Хитрость', 'Проделка', 'Плутовка', 'Шкода', 'Засада', 'Агентура', 'Авантюра', 'Разгадка', 'Подмена', 'Добыча'];
+
+function newRoomName(): string {
+    global $ROOM_ADJ, $ROOM_NOUN;
+    $r = redis();
+    $used = [];
+    foreach ($r->keys('room:*') ?: [] as $key) {
+        $room = json_decode((string)$r->get($key), true);
+        if (is_array($room) && !empty($room['name'])) $used[$room['name']] = true;
+    }
+    for ($i = 0; $i < 20; $i++) {
+        $n = $ROOM_ADJ[array_rand($ROOM_ADJ)] . ' ' . $ROOM_NOUN[array_rand($ROOM_NOUN)];
+        if (!isset($used[$n])) return $n;
+    }
+    return 'Операция ' . strtolower((string)random_int(100, 999));
 }
 
 function bumpRoom(array &$room): void {
@@ -1076,6 +1101,7 @@ if ($action === 'create') {
     }
     $room = [
         'code' => $code,
+        'name' => newRoomName(),
         'createdAt' => time(),
         'lastActivity' => time(),
         'version' => 0,
