@@ -185,8 +185,8 @@ MP.renderRooms = function (rooms) {
         const mine = MP.room === r.id;
         const open = !!MP._expandedRoom[r.id];
         const members = (r.members || []).map((m, i) => `
-          <div class="rm-item${i === 0 ? ' rm-host' : ''}">
-            <span class="rm-name">${i === 0 ? '👑 ' : ''}${escapeHtml(m.name)}</span>
+          <div class="rm-item">
+            <span class="rm-name">${escapeHtml(m.name)}</span>
             <span class="rm-rating">★ ${m.rating}</span>
           </div>`).join('') || '<div class="rm-item rm-empty">—</div>';
         return `

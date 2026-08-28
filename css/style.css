@@ -360,13 +360,14 @@ body {
 .lobby-actions { text-align: center; margin-top: 14px; }
 
 #menu-screen {
-  max-width: 640px; margin: 20px auto 0; padding: 0 16px;
+  max-width: 1100px; margin: 20px 0 0; padding: 0 16px;
   display: flex; flex-direction: column;
   max-height: calc(100vh - 110px);
 }
 #menu-screen .menu-rooms { display: flex; flex-direction: column; min-height: 0; }
-.menu-top { position: relative; display: flex; justify-content: center; align-items: center; margin-bottom: 18px; }
-.menu-actions { display: flex; gap: 12px; }
+.menu-top { position: relative; display: flex; align-items: center; margin-bottom: 20px; }
+.menu-actions { display: flex; gap: 12px; width: 100%; }
+#menu-screen .btn { font-size: 17px; padding: 13px 12px; flex: 1 1 0; }
 .icon-btn {
   position: absolute; right: 0; top: 50%; transform: translateY(-50%);
   font-size: 22px; line-height: 1; padding: 8px;
@@ -376,23 +377,23 @@ body {
 .my-room-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   background: rgba(245, 184, 61, .1); border: 1px solid var(--accent);
-  border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; font-weight: 600; font-size: 14px;
+  border-radius: 10px; padding: 11px 14px; margin-bottom: 12px; font-weight: 600; font-size: 16px;
 }
-.rr-mine { color: var(--accent); font-weight: 700; font-size: 13px; white-space: nowrap; }
+.rr-mine { color: var(--accent); font-weight: 700; font-size: 14px; white-space: nowrap; }
 .menu-rooms {
   background: var(--panel); border: 1px solid var(--panel-border);
-  border-radius: 14px; padding: 18px 20px;
+  border-radius: 14px; padding: 20px 24px;
 }
 .menu-name {
   display: flex; flex-direction: column; gap: 6px;
-  font-weight: 600; font-size: 14px; color: var(--muted);
-  max-width: 320px; margin: 0 auto 8px; text-align: left;
+  font-weight: 600; font-size: 15px; color: var(--muted);
+  max-width: 340px; margin: 0 auto 8px; text-align: left;
 }
 .menu-name input {
-  font: inherit; padding: 10px 12px; border-radius: 8px;
+  font: inherit; padding: 12px 14px; border-radius: 8px;
   background: #101812; color: var(--text); border: 1px solid var(--panel-border);
 }
-.menu-rooms h2 { margin: 14px 0 10px; text-align: center; }
+.menu-rooms h2 { margin: 14px 0 12px; text-align: center; font-size: 21px; }
 #mp-mybar { flex: 0 0 auto; }
 #mp-rooms {
   flex: 1 1 auto; min-height: 120px; overflow-y: auto;
@@ -405,24 +406,24 @@ body {
 .count-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 .count-btn { min-width: 46px; padding: 10px 0; font-size: 16px; }
 
-.room-table { width: 100%; border-collapse: collapse; }
+.room-table { width: 100%; border-collapse: collapse; font-size: 16px; }
 .room-table th {
-  text-align: left; color: var(--muted); font-size: 13px;
-  padding: 6px 10px; border-bottom: 1px solid var(--panel-border);
+  text-align: left; color: var(--muted); font-size: 14px;
+  padding: 8px 12px; border-bottom: 1px solid var(--panel-border);
 }
-.room-table td { padding: 9px 10px; border-bottom: 1px solid rgba(255,255,255,.05); font-weight: 600; }
+.room-table td { padding: 11px 12px; border-bottom: 1px solid rgba(255,255,255,.05); font-weight: 600; }
 .room-table tr:last-child td { border-bottom: none; }
 .room-table .rt-action { text-align: right; }
-.room-table .rr-join { padding: 6px 16px; font-size: 14px; }
+.room-table .rr-join { padding: 8px 20px; font-size: 15px; }
 .room-table .rr-group-mine { background: rgba(245, 184, 61, .05); }
 .room-table .rr-head { cursor: pointer; }
 .room-table .rr-head td { font-weight: 700; }
 .room-table .rr-head:hover td { color: var(--accent); }
-.rr-caret { display: inline-block; color: var(--muted); font-size: 12px; }
+.rr-caret { display: inline-block; color: var(--muted); font-size: 14px; }
 .rt-avg { color: #ffd479; font-weight: 700; white-space: nowrap; }
-.room-table .rr-members td { padding: 0 10px 12px; }
-.rm-list { display: flex; flex-direction: column; gap: 3px; border-top: 1px dashed rgba(255,255,255,.14); padding-top: 8px; }
-.rm-item { display: flex; justify-content: space-between; gap: 14px; color: #9a9ab0; font-size: 13px; font-weight: 600; }
+.room-table .rr-members td { padding: 0 12px 12px; }
+.rm-list { display: flex; flex-direction: column; gap: 4px; border-top: 1px dashed rgba(255,255,255,.14); padding-top: 10px; }
+.rm-item { display: flex; justify-content: space-between; gap: 14px; color: #9a9ab0; font-size: 15px; font-weight: 600; }
 .rm-item.rm-host { color: var(--text); }
 .rm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rm-rating { color: #ffd479; white-space: nowrap; }
