@@ -6,6 +6,7 @@
   let mode = 'login';
   let vkAppId = '';
   let vkRedirectUri = '';
+  let insideVk = false;
 
   const $ = s => document.querySelector(s);
 
@@ -85,7 +86,7 @@
         statsHtml = '<div class="auth-stats"><div class="as-rating">★ ' + (u.rating != null ? u.rating : 1000) + '</div><div class="as-line"><span>Партий</span><b>пока нет</b></div></div>';
       }
       info.innerHTML = `Вы вошли как <b>${escapeHtmlA(u.name)}</b>${statsHtml}`;
-      let actions = '<button id="auth-logout" class="btn secondary">Выйти</button>';
+      let actions = insideVk ? '' : '<button id="auth-logout" class="btn secondary">Выйти</button>';
       // Привязка VK к обычному аккаунту (видна только локально зарегистрированным)
       if (u.provider === 'local') {
         actions += u.vkId
@@ -334,12 +335,12 @@
 
   (async function init() {
     await loadAuthConfig();
-    render();
     const q = launchParamsFromUrl();
-    const insideVk = q.has('vk_app_id') || q.has('vk_user_id') || q.has('sign')
+    insideVk = q.has('vk_app_id') || q.has('vk_user_id') || q.has('sign')
       || window.vkBridge
       || (window.parent !== window && window.self !== window.top)
       || /vk(ango)?[ _-]?(app|android|ios|client|web)/i.test(navigator.userAgent);
+    render();
     if (insideVk) {
       await vkMiniLogin(q);
       return;
