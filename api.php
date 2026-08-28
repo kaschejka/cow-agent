@@ -907,7 +907,7 @@ if ($action === 'me') {
 }
 
 if ($action === 'authConfig') {
-    respond(['ok' => true, 'vkAppId' => VK_APP_ID]);
+    respond(['ok' => true, 'vkAppId' => VK_APP_ID, 'vkRedirectUri' => VK_REDIRECT_URI]);
 }
 
 if ($action === 'authYandex') {
@@ -928,7 +928,9 @@ if ($action === 'authVk') {
     if (VK_APP_ID === '' || VK_APP_SECRET === '') fail('Авторизация через VK не настроена на сервере');
     $code = trim((string)($body['code'] ?? ''));
     if ($code === '') fail('Нет кода авторизации VK');
-    $redirectUri = (string)($body['redirectUri'] ?? '');
+    // redirect_uri в обмене кода обязан совпадать с тем, что уходил в /authorize.
+    $redirectUri = trim((string)($body['redirectUri'] ?? ''));
+    if ($redirectUri === '') $redirectUri = trim(VK_REDIRECT_URI) !== '' ? trim(VK_REDIRECT_URI) : appUrl() . '/';
     $query = http_build_query([
         'client_id' => VK_APP_ID,
         'client_secret' => VK_APP_SECRET,
@@ -938,7 +940,11 @@ if ($action === 'authVk') {
     $raw = @file_get_contents('https://oauth.vk.com/access_token?' . $query);
     $data = $raw ? json_decode($raw, true) : null;
     if (!is_array($data) || empty($data['access_token'])) {
-        fail('VK: не удалось обменять код' . (isset($data['error_description']) ? ': ' . $data['error_description'] : ''), 401);
+        $desc = isset($data['error_description']) ? ': ' . $data['error_description'] : '';
+        if (stripos($desc, 'redirect_uri') !== false || isset($data['error']) && $data['error'] === 'invalid_request') {
+            $desc .= ' (адрес входа укажите точно в настройках приложения VK, проверьте VK_REDIRECT_URI: ' . $redirectUri . ')';
+        }
+        fail('VK: не удалось обменять код' . $desc, 401);
     }
     $vkUid = (string)$data['user_id'];
     $raw2 = @file_get_contents('https://api.vk.com/method/users.get?'
@@ -957,25 +963,36 @@ if ($action === 'authVk') {
     authRespondUser($u);
 }
 
-/** Проверка подписи параметров запуска VK Mini Apps (sha256 от vk_*-параметров + секрет). */
+/** Проверка подписи параметров запуска VK Mini Apps: HMAC-SHA256 от
+ * отсортированных vk_*-параметров (вид "k=v&k2=v2", URL-кодированные), base64url без дополнения. */
 function vkMiniSignValid(array $p): bool {
     if (VK_APP_SECRET === '') return false;
-    $pairs = [];
+    $signParams = [];
     foreach ($p as $k => $v) {
         $k = (string)$k;
-        if ($k !== 'sign' && str_starts_with($k, 'vk_')) $pairs[] = $k . '=' . (string)$v;
+        if ($k !== 'sign' && str_starts_with($k, 'vk_')) $signParams[$k] = (string)$v;
     }
-    sort($pairs);
-    $calc = hash('sha256', implode(',', $pairs) . VK_APP_SECRET);
-    return hash_equals($calc, strtolower((string)($p['sign'] ?? '')));
+    ksort($signParams);
+    $signParamsQuery = http_build_query($signParams);
+    $calc = rtrim(strtr(base64_encode(hash_hmac('sha256', $signParamsQuery, VK_APP_SECRET, true)), '+/', '-_'), '=');
+    return hash_equals($calc, (string)($p['sign'] ?? ''));
 }
 
 // Автоматический вход внутри VK (мини-приложение): регистрация не нужна,
 // аккаунт создаётся сам с именем из VK, без e-mail и писем.
 if ($action === 'authVkMini') {
     if (VK_APP_ID === '' || VK_APP_SECRET === '') fail('Авторизация через VK не настроена на сервере');
-    $p = is_array($body['params'] ?? null) ? $body['params'] : [];
-    if (!vkMiniSignValid($p)) fail('Подпись VK недействительна', 401);
+    $p = $body['params'] ?? [];
+    if (is_string($p)) {
+        $out = [];
+        parse_str($p, $out);
+        $p = $out;
+    }
+    if (!is_array($p)) $p = [];
+    if (!vkMiniSignValid($p)) {
+        error_log('authVkMini: invalid VK sign, params=' . json_encode(array_keys($p), JSON_UNESCAPED_UNICODE));
+        fail('Подпись VK недействительна', 401);
+    }
     $uid = preg_replace('/\D/', '', (string)($p['vk_user_id'] ?? ''));
     if ($uid === '') fail('Не передан vk_user_id');
     $nameRaw = is_array($body['user'] ?? null) ? ($body['user']['name'] ?? '') : '';

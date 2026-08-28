@@ -30,6 +30,9 @@ function env(string $key, string $default = ''): string {
 
 define('VK_APP_ID', env('VK_APP_ID', ''));
 define('VK_APP_SECRET', env('VK_APP_SECRET', ''));
+// Точный redirect_uri для OAuth VK (должен совпадать с адресом в настройках
+// приложения на dev.vk.com). Пусто = брать из текущего запроса.
+define('VK_REDIRECT_URI', env('VK_REDIRECT_URI', ''));
 define('AUTH_SESSION_TTL', (int)env('AUTH_SESSION_TTL', '2592000'));
 
 define('REDIS_HOSTS', array_values(array_filter(array_map('trim', explode(',', env('REDIS_HOSTS', '127.0.1.55,127.0.0.1'))))));

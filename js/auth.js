@@ -5,6 +5,7 @@
   const USER_KEY = 'cow_auth_user';
   let mode = 'login';
   let vkAppId = '';
+  let vkRedirectUri = '';
 
   const $ = s => document.querySelector(s);
 
@@ -97,6 +98,7 @@
     try {
       const cfg = await api('authConfig');
       vkAppId = cfg.vkAppId || '';
+      vkRedirectUri = cfg.vkRedirectUri || '';
     } catch { /* сервер недоступен — кнопка останется заблокированной */ }
     return vkAppId;
   }
@@ -120,13 +122,17 @@
     }
   }
 
+  function vkRedirect() {
+    return vkRedirectUri || (location.origin + location.pathname);
+  }
+
   async function vkCallback() {
     const q = new URLSearchParams(location.search);
     const code = q.get('code');
     if (!code) return;
     history.replaceState(null, '', location.pathname);
     try {
-      const redirect = localStorage.getItem('cow_vk_redirect') || (location.origin + location.pathname);
+      const redirect = localStorage.getItem('cow_vk_redirect') || vkRedirect();
       afterLogin(await api('authVk', { code, redirectUri: redirect }));
     } catch (err) {
       $('#auth-error').textContent = err.message;
@@ -191,7 +197,7 @@
           $('#auth-error').textContent = 'VK-авторизация не настроена на сервере (нужны VK_APP_ID и VK_APP_SECRET)';
           return;
         }
-        const redirect = location.origin + location.pathname;
+        const redirect = vkRedirect();
         localStorage.setItem('cow_vk_redirect', redirect);
         location.href = 'https://oauth.vk.com/authorize?client_id=' + encodeURIComponent(vkAppId)
           + '&redirect_uri=' + encodeURIComponent(redirect)
@@ -234,28 +240,73 @@
     }
   });
 
-  // Запуск внутри VK (мини-приложение): тихий вход без формы регистрации
+  function launchParamsFromUrl() {
+    const q = new URLSearchParams(location.search);
+    if (location.hash.length > 1) {
+      try {
+        const h = new URLSearchParams(location.hash.slice(1));
+        for (const [k, v] of h) if (!q.has(k)) q.append(k, v);
+      } catch { /* нестандартный фрагмент */ }
+    }
+    return q;
+  }
+
+  function ensureVkBridge() {
+    if (window.vkBridge) return Promise.resolve();
+    const cdn = [
+      'https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js',
+      'https://cdn.jsdelivr.net/npm/@vkontakte/vk-bridge/dist/browser.min.js',
+    ];
+    return new Promise((ok, bad) => {
+      let i = -1;
+      const timer = window.setTimeout(() => { bad(new Error('vk-bridge timeout')); }, 4000);
+      const loadNext = () => {
+        i++;
+        if (i >= cdn.length) { window.clearTimeout(timer); bad(new Error('vk-bridge недоступен')); return; }
+        const s = document.createElement('script');
+        s.src = cdn[i];
+        s.onload = () => { window.clearTimeout(timer); ok(); };
+        s.onerror = () => { s.remove(); loadNext(); };
+        document.head.appendChild(s);
+      };
+      loadNext();
+    });
+  }
+
+  // Запуск внутри VK (мини-приложение): тихий вход без формы регистрации.
+  // Параметры запуска берём из URL и/или от хоста VK (VKWebAppGetLaunchParams);
+  // подпись проверяется на сервере, мост нужен только для имени и параметров.
   async function vkMiniLogin(q) {
+    let name = '';
     try {
-      if (!window.vkBridge) {
-        await new Promise((ok, bad) => {
-          const s = document.createElement('script');
-          s.src = 'https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js';
-          s.onload = ok;
-          s.onerror = bad;
-          document.head.appendChild(s);
-        });
-      }
+      await ensureVkBridge();
       const bridge = window.vkBridge.default || window.vkBridge;
       await bridge.send('VKWebAppInit');
-      let name = '';
+      try {
+        const lp = await bridge.send('VKWebAppGetLaunchParams');
+        if (lp && typeof lp === 'object') {
+          for (const k of Object.keys(lp)) {
+            if (k === 'sign' || String(k).startsWith('vk_')) q.set(k, String(lp[k]));
+          }
+        }
+      } catch { /* параметры могли прийти в URL */ }
       try {
         const ui = await bridge.send('VKWebAppGetUserInfo');
         name = ((ui.first_name || '') + ' ' + (ui.last_name || '')).trim();
       } catch { /* имя необязательно */ }
-      afterLogin(await api('authVkMini', { params: Object.fromEntries(q.entries()), user: { name } }));
+    } catch { /* без моста пробуем войти по URL-параметрам */ }
+
+    if (!q.get('sign') || !q.get('vk_user_id')) {
+      console.warn('[auth] VK-параметры запуска не найдены', location.href);
+      return;
+    }
+
+    try {
+      afterLogin(await api('authVkMini', { params: q.toString(), user: { name } }));
     } catch (err) {
-      $('#auth-error').textContent = 'Не удалось выполнить вход через VK: ' + err.message;
+      console.error('[auth] автоматический вход через VK не удался:', err.message, q.toString());
+      const info = $('#auth-info');
+      if (info) info.textContent = 'Вход через VK не выполнен (' + err.message + ') — войдите вручную ниже.';
     }
   }
 
@@ -264,8 +315,12 @@
   (async function init() {
     await loadAuthConfig();
     render();
-    const q = new URLSearchParams(location.search);
-    if (q.get('vk_app_id') && q.get('vk_user_id') && q.get('sign')) {
+    const q = launchParamsFromUrl();
+    const insideVk = q.has('vk_app_id') || q.has('vk_user_id') || q.has('sign')
+      || window.vkBridge
+      || (window.parent !== window && window.self !== window.top)
+      || /vk(ango)?[ _-]?(app|android|ios|client|web)/i.test(navigator.userAgent);
+    if (insideVk) {
       await vkMiniLogin(q);
       return;
     }
