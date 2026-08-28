@@ -335,6 +335,12 @@ body {
   margin-top: 10px;
 }
 .auth-providers .btn { padding: 8px 12px; font-size: 14px; }
+.auth-link-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.auth-link-row input {
+  width: 120px; padding: 6px 10px; font-size: 14px;
+  border: 1px solid var(--panel-border); border-radius: 8px; background: var(--panel); color: inherit;
+}
+.auth-providers .sm-btn { padding: 6px 10px; font-size: 13px; }
 #auth-form { margin-top: 12px; }
 #auth-form .menu-name { max-width: none; margin: 0 0 8px; }
 @media (max-width: 660px) {

@@ -222,7 +222,7 @@ function sendConfirmEmail(array $u): void {
 }
 
 function authPublicUser(array $u): array {
-    $out = ['userId' => (int)$u['id'], 'name' => (string)$u['name'], 'provider' => (string)$u['provider'], 'login' => (string)$u['login']];
+    $out = ['userId' => (int)$u['id'], 'name' => (string)$u['name'], 'provider' => (string)$u['provider'], 'login' => (string)$u['login'], 'vkId' => isset($u['vk_id']) && $u['vk_id'] !== null ? (string)$u['vk_id'] : null];
     try {
         $rows = ratingFetchMap(db(), [(int)$u['id']]);
         $r = $rows[(int)$u['id']] ?? ratingRowDefault((int)$u['id']);
@@ -906,6 +906,39 @@ if ($action === 'me') {
     respond(['ok' => true] + authPublicUser($u));
 }
 
+// Привязка локального аккаунта (provider=local) к VK id: пользователь указывает
+// свой id из VK, чтобы при запуске игры из VK входить под этим же аккаунтом.
+if ($action === 'linkVk') {
+    $u = currentUser($body);
+    if (!$u) fail('Не авторизован', 401);
+    if ((string)$u['provider'] !== 'local') fail('Привязать VK можно только к аккаунту с обычной регистрацией', 400);
+    $vkId = preg_replace('/\D/', '', (string)($body['vkId'] ?? ''));
+    if ($vkId === '') fail('Укажите id из VK', 400);
+    // id занят другим пользователем (уже привязан) или уже существует мини-аккаунт VK на этот id
+    $st = db()->prepare('SELECT id FROM users WHERE vk_id = ? LIMIT 1');
+    $st->execute([$vkId]);
+    if ($st->fetchColumn() !== false) fail('Этот VK id уже привязан к другому аккаунту', 409);
+    $mini = authFindUserId('vkmini', $vkId);
+    if ($mini !== null) fail('Этот VK аккаунт уже используется в игре', 409);
+    try {
+        $st = db()->prepare('UPDATE users SET vk_id = ? WHERE id = ?');
+        $st->execute([$vkId, (int)$u['id']]);
+    } catch (PDOException $e) {
+        if ($e->getCode() === '23000') fail('Этот VK id уже привязан к другому аккаунту', 409);
+        throw $e;
+    }
+    respond(['ok' => true] + authPublicUser(authGetUserById((int)$u['id'])));
+}
+
+// Снятие привязки VK id с локального аккаунта.
+if ($action === 'unlinkVk') {
+    $u = currentUser($body);
+    if (!$u) fail('Не авторизован', 401);
+    $st = db()->prepare('UPDATE users SET vk_id = NULL WHERE id = ?');
+    $st->execute([(int)$u['id']]);
+    respond(['ok' => true] + authPublicUser(authGetUserById((int)$u['id'])));
+}
+
 if ($action === 'authConfig') {
     respond(['ok' => true, 'vkAppId' => VK_APP_ID, 'vkRedirectUri' => VK_REDIRECT_URI]);
 }
@@ -997,6 +1030,16 @@ if ($action === 'authVkMini') {
     if ($uid === '') fail('Не передан vk_user_id');
     $nameRaw = is_array($body['user'] ?? null) ? ($body['user']['name'] ?? '') : '';
     $name = cleanName($nameRaw !== '' ? $nameRaw : 'Игрок VK');
+    // Если этот VK id привязан к обычному аккаунту (через linkVk) — входим под ним.
+    $st = db()->prepare('SELECT id FROM users WHERE vk_id = ? LIMIT 1');
+    $st->execute([$uid]);
+    $linkedId = $st->fetchColumn();
+    if ($linkedId !== false) {
+        $lid = (int)$linkedId;
+        $st = db()->prepare('UPDATE users SET name = ? WHERE id = ?');
+        $st->execute([$name, $lid]);
+        authRespondUser(authGetUserById($lid));
+    }
     $id = authFindUserId('vkmini', $uid);
     if ($id !== null) {
         // имя подтягиваем из профиля при каждом входе

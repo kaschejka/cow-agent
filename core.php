@@ -117,6 +117,16 @@ function dbMigrateUsers(PDO $pdo): void {
     } catch (PDOException $e) {
         // индекс уже существует или в данных дубликаты — не критично
     }
+    // Привязка локального аккаунта к VK id (только один пользователь на один VK id)
+    $hasVk = $pdo->query("SHOW COLUMNS FROM users LIKE 'vk_id'")->fetch();
+    if (!$hasVk) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN vk_id VARCHAR(64) DEFAULT NULL AFTER email_verified");
+    }
+    try {
+        $pdo->exec("ALTER TABLE users ADD UNIQUE KEY uq_vk_id (vk_id)");
+    } catch (PDOException $e) {
+        // индекс уже существует или в данных дубликаты — не критично
+    }
 }
 
 /* ===== Рейтинг и статистика ===== */

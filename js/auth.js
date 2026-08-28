@@ -22,6 +22,7 @@
       name: d.name,
       provider: d.provider,
       login: d.login,
+      vkId: d.vkId != null ? String(d.vkId) : null,
       rating: typeof d.rating === 'number' ? d.rating : null,
       stats: d.stats || null,
     }));
@@ -84,13 +85,22 @@
         statsHtml = '<div class="auth-stats"><div class="as-rating">★ ' + (u.rating != null ? u.rating : 1000) + '</div><div class="as-line"><span>Партий</span><b>пока нет</b></div></div>';
       }
       info.innerHTML = `Вы вошли как <b>${escapeHtmlA(u.name)}</b>${statsHtml}`;
-      guest.innerHTML = '<button id="auth-logout" class="btn secondary">Выйти</button>';
+      let actions = '<button id="auth-logout" class="btn secondary">Выйти</button>';
+      // Привязка VK к обычному аккаунту (видна только локально зарегистрированным)
+      if (u.provider === 'local') {
+        actions += u.vkId
+          ? `<div class="auth-link-row">Привязано: VK id <b>${escapeHtmlA(u.vkId)}</b> <button id="auth-vk-unlink" class="btn sm-btn secondary">Снять</button></div>`
+          : `<div class="auth-link-row">Привязать вход из VK к этому аккаунту
+               <input id="auth-vk-link-input" inputmode="numeric" maxlength="16" pattern="[0-9]*" placeholder="Ваш VK id">
+               <button id="auth-vk-link" class="btn secondary">Привязать</button>
+             </div>`;
+      }
+      guest.innerHTML = actions;
     } else {
       info.textContent = 'Вы играете как гость. Войдите, чтобы закрепить имя.';
       guest.innerHTML = `
         <button id="auth-login-btn" class="btn primary">Вход</button>
-        <button id="auth-register-btn" class="btn secondary">Регистрация</button>
-        <button id="auth-vk" class="btn secondary">Войти через VK</button>`;
+        <button id="auth-register-btn" class="btn secondary">Регистрация</button>`;
     }
   }
 
@@ -191,17 +201,22 @@
         afterLogin(await api(mode, payload));
         return;
       }
-      if (t.id === 'auth-vk') {
-        if (!vkAppId) await loadAuthConfig(); // вдруг настроили без перезагрузки страницы
-        if (!vkAppId) {
-          $('#auth-error').textContent = 'VK-авторизация не настроена на сервере (нужны VK_APP_ID и VK_APP_SECRET)';
+      if (t.id === 'auth-vk-link') {
+        const input = $('#auth-vk-link-input');
+        const vkId = (input ? input.value : '').replace(/\D/g, '').trim();
+        if (!vkId) {
+          $('#auth-error').textContent = 'Укажите ваш id из VK (цифрами)';
           return;
         }
-        const redirect = vkRedirect();
-        localStorage.setItem('cow_vk_redirect', redirect);
-        location.href = 'https://oauth.vk.com/authorize?client_id=' + encodeURIComponent(vkAppId)
-          + '&redirect_uri=' + encodeURIComponent(redirect)
-          + '&response_type=code&v=5.199&display=page';
+        const d = await api('linkVk', { authToken: getToken(), vkId });
+        saveAuth({ authToken: getToken(), userId: d.userId, name: d.name, provider: d.provider, login: d.login, vkId: d.vkId, rating: d.rating, stats: d.stats });
+        render();
+        return;
+      }
+      if (t.id === 'auth-vk-unlink') {
+        const d = await api('unlinkVk', { authToken: getToken() });
+        saveAuth({ authToken: getToken(), userId: d.userId, name: d.name, provider: d.provider, login: d.login, vkId: d.vkId, rating: d.rating, stats: d.stats });
+        render();
         return;
       }
       if (t.id === 'auth-ya') {
@@ -327,7 +342,7 @@
     if (getToken()) {
       try {
         const d = await api('me', { authToken: getToken() });
-        saveAuth({ authToken: getToken(), userId: d.userId, name: d.name, provider: d.provider, login: d.login, rating: d.rating, stats: d.stats });
+        saveAuth({ authToken: getToken(), userId: d.userId, name: d.name, provider: d.provider, login: d.login, vkId: d.vkId, rating: d.rating, stats: d.stats });
       } catch (e) {
         if (e.code === 401) clearAuth();
       }
