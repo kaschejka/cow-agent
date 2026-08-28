@@ -924,35 +924,59 @@ if ($action === 'authYandex') {
     authRespondUser($u);
 }
 
+// Современный VK ID OAuth 2.0: authorize на id.vk.com, обмен кода — в id.vk.com/oauth2/auth.
+// redirect_uri обязан совпадать с зарегистрированным в настройках приложения VK.
+function vkExchangeCode(string $code, string $redirectUri): array {
+    $post = http_build_query([
+        'grant_type'    => 'authorization_code',
+        'code'          => $code,
+        'client_id'     => VK_APP_ID,
+        'client_secret' => VK_APP_SECRET,
+        'redirect_uri'  => $redirectUri,
+        'device_id'     => 'cow-agent',
+    ]);
+    $ctx = stream_context_create(['http' => [
+        'method' => 'POST',
+        'header' => "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: " . strlen($post),
+        'content' => $post,
+        'ignore_errors' => true,
+        'timeout' => 15,
+    ]]);
+    $raw = @file_get_contents('https://id.vk.com/oauth2/auth', false, $ctx);
+    $data = $raw ? json_decode($raw, true) : null;
+    if (!is_array($data)) $data = [];
+    return $data;
+}
+
 if ($action === 'authVk') {
     if (VK_APP_ID === '' || VK_APP_SECRET === '') fail('Авторизация через VK не настроена на сервере');
     $code = trim((string)($body['code'] ?? ''));
     if ($code === '') fail('Нет кода авторизации VK');
-    // redirect_uri в обмене кода обязан совпадать с тем, что уходил в /authorize.
     $redirectUri = trim((string)($body['redirectUri'] ?? ''));
     if ($redirectUri === '') $redirectUri = trim(VK_REDIRECT_URI) !== '' ? trim(VK_REDIRECT_URI) : appUrl() . '/';
-    $query = http_build_query([
-        'client_id' => VK_APP_ID,
-        'client_secret' => VK_APP_SECRET,
-        'redirect_uri' => $redirectUri,
-        'code' => $code,
-    ]);
-    $raw = @file_get_contents('https://oauth.vk.com/access_token?' . $query);
-    $data = $raw ? json_decode($raw, true) : null;
-    if (!is_array($data) || empty($data['access_token'])) {
-        $desc = isset($data['error_description']) ? ': ' . $data['error_description'] : '';
-        if (stripos($desc, 'redirect_uri') !== false || isset($data['error']) && $data['error'] === 'invalid_request') {
-            $desc .= ' (адрес входа укажите точно в настройках приложения VK, проверьте VK_REDIRECT_URI: ' . $redirectUri . ')';
+    $data = vkExchangeCode($code, $redirectUri);
+
+    // В ответе VK ID может не быть access_token (например, ошибка) либо не быть user_id
+    // (тогда uid получим через users.get уже по самому токену).
+    $accessToken = (string)($data['access_token'] ?? '');
+    $vkUid = (string)($data['user_id'] ?? '');
+    if ($accessToken === '') {
+        $desc = isset($data['error_description']) ? ': ' . $data['error_description'] : (isset($data['error']) ? ': ' . $data['error'] : '');
+        if (stripos($desc, 'redirect_uri') !== false) {
+            $desc .= ' — адрес входа укажите точно в настройках приложения VK (проверьте VK_REDIRECT_URI: ' . $redirectUri . ')';
         }
         fail('VK: не удалось обменять код' . $desc, 401);
     }
-    $vkUid = (string)$data['user_id'];
-    $raw2 = @file_get_contents('https://api.vk.com/method/users.get?'
-        . http_build_query(['user_ids' => $vkUid, 'fields' => 'photo_100', 'access_token' => $data['access_token'], 'v' => '5.199']));
-    $info = $raw2 ? json_decode($raw2, true) : null;
-    $fname = $info['response'][0]['first_name'] ?? '';
-    $lname = $info['response'][0]['last_name'] ?? '';
-    $name = cleanName(trim($fname . ' ' . $lname));
+    $name = '';
+    if ($vkUid !== '') {
+        $raw2 = @file_get_contents('https://api.vk.com/method/users.get?'
+            . http_build_query(['user_ids' => $vkUid, 'fields' => 'photo_100', 'access_token' => $accessToken, 'v' => '5.199']));
+        $info2 = $raw2 ? json_decode($raw2, true) : null;
+        $fname = $info2['response'][0]['first_name'] ?? '';
+        $lname = $info2['response'][0]['last_name'] ?? '';
+        $name = cleanName(trim($fname . ' ' . $lname));
+    }
+    if ($vkUid === '') fail('VK: не получен идентификатор пользователя', 401);
     $id = authFindUserId('vk', $vkUid);
     if ($id === null) {
         $u = authCreateUser('vk', $vkUid, 'vk_' . $vkUid, $name, null);
