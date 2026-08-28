@@ -289,22 +289,27 @@
   }
 
   // Запуск внутри VK (мини-приложение): тихий вход без формы регистрации.
-  // Параметры запуска берём из URL и/или от хоста VK (VKWebAppGetLaunchParams);
-  // подпись проверяется на сервере, мост нужен только для имени и параметров.
+  // Подпись проверяется на сервере. Параметры запуска берём только из одного
+  // источника: если они есть в URL (webview) — используем их как есть, т.к. VK
+  // подписывает именно их; мост (VKWebAppGetLaunchParams) нужен, когда URL пуст,
+  // и используется только для имён (VKWebAppGetUserInfo).
   async function vkMiniLogin(q) {
     let name = '';
     try {
       await ensureVkBridge();
       const bridge = window.vkBridge.default || window.vkBridge;
       await bridge.send('VKWebAppInit');
-      try {
-        const lp = await bridge.send('VKWebAppGetLaunchParams');
-        if (lp && typeof lp === 'object') {
-          for (const k of Object.keys(lp)) {
-            if (k === 'sign' || String(k).startsWith('vk_')) q.set(k, String(lp[k]));
+      const hasUrlParams = q.has('vk_user_id') && q.has('sign');
+      if (!hasUrlParams) {
+        try {
+          const lp = await bridge.send('VKWebAppGetLaunchParams');
+          if (lp && typeof lp === 'object') {
+            for (const k of Object.keys(lp)) {
+              if (k === 'sign' || String(k).startsWith('vk_')) q.set(k, String(lp[k]));
+            }
           }
-        }
-      } catch { /* параметры могли прийти в URL */ }
+        } catch { /* параметры могли прийти в URL */ }
+      }
       try {
         const ui = await bridge.send('VKWebAppGetUserInfo');
         name = ((ui.first_name || '') + ' ' + (ui.last_name || '')).trim();

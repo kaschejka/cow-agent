@@ -1006,8 +1006,15 @@ function vkMiniSignValid(array $p): bool {
         if ($k !== 'sign' && str_starts_with($k, 'vk_')) $signParams[$k] = (string)$v;
     }
     ksort($signParams);
-    $signParamsQuery = http_build_query($signParams);
+    // VK подписывает строку "k=v&k2=v2" с исходными (не URL-кодированными) значениями
+    $pairs = [];
+    foreach ($signParams as $k => $v) $pairs[] = $k . '=' . $v;
+    $signParamsQuery = implode('&', $pairs);
     $calc = rtrim(strtr(base64_encode(hash_hmac('sha256', $signParamsQuery, VK_APP_SECRET, true)), '+/', '-_'), '=');
+    error_log('authVkMini: keys=' . json_encode(array_keys($signParams), JSON_UNESCAPED_UNICODE)
+        . ' query=' . $signParamsQuery
+        . ' calc=' . $calc
+        . ' sign=' . (string)($p['sign'] ?? ''));
     return hash_equals($calc, (string)($p['sign'] ?? ''));
 }
 
