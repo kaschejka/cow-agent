@@ -91,17 +91,17 @@
       } else {
         statsHtml += '<div class="as-line"><span>Партий</span><b>пока нет</b></div>';
       }
-      statsHtml += '</div>';
-      let actions = statsHtml + (insideVk ? '' : '<button id="auth-logout" class="btn secondary">Выйти</button>');
-      // Привязка VK к обычному аккаунту (видна только локально зарегистрированным)
+      // Привязка VK к обычному аккаунту — внутри блока статистики
       if (u.provider === 'local') {
-        actions += u.vkId
+        statsHtml += u.vkId
           ? `<div class="auth-link-row">Привязано: VK id <b>${escapeHtmlA(u.vkId)}</b> <button id="auth-vk-unlink" class="btn sm-btn secondary">Снять</button></div>`
           : `<div class="auth-link-row">Привязать вход из VK к этому аккаунту
                <input id="auth-vk-link-input" inputmode="numeric" maxlength="16" pattern="[0-9]*" placeholder="Ваш VK id">
                <button id="auth-vk-link" class="btn secondary">Привязать</button>
              </div>`;
       }
+      statsHtml += '</div>';
+      let actions = statsHtml + (insideVk ? '' : '<button id="auth-logout" class="btn secondary">Выйти</button>');
       guest.innerHTML = actions;
     } else {
       info.textContent = 'Вы играете как гость. Войдите, чтобы закрепить имя.';
