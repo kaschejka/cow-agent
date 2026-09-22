@@ -181,6 +181,10 @@
     $('#auth-login-btn').classList.toggle('primary', mode === 'login');
     $('#auth-register-btn').classList.toggle('primary', mode === 'register');
     $('#auth-register-btn').classList.toggle('secondary', mode !== 'register');
+    $('#auth-head-login').classList.toggle('secondary', mode !== 'login');
+    $('#auth-head-login').classList.toggle('primary', mode === 'login');
+    $('#auth-head-register').classList.toggle('primary', mode === 'register');
+    $('#auth-head-register').classList.toggle('secondary', mode !== 'register');
     $('#auth-error').style.color = '';
     $('#auth-error').textContent = '';
     const oldResend = $('#auth-resend');
@@ -201,20 +205,6 @@
       }
       return;
     }
-  // Мобильный бэкдроп: клик вне .auth-panel закрывает раскрытый профиль
-  if (e.target.closest('#auth-block') && !e.target.closest('.auth-panel') &&
-      window.innerWidth <= 660) {
-    const stats = $('#auth-stats');
-    if (stats && !stats.classList.contains('hidden')) {
-      stats.classList.add('hidden');
-      const caret = $('#auth-caret');
-      if (caret) caret.textContent = '▸';
-    }
-    const form = $('#auth-form');
-    if (form) form.classList.add('hidden');
-    syncAuthOpen();
-    return;
-  }
   const t = e.target.closest('button');
   if (!t) return;
     try {
@@ -234,6 +224,33 @@
           return;
         }
         openForm('register');
+        return;
+      }
+      if (t.id === 'auth-head-login') {
+        openForm('login');
+        return;
+      }
+      if (t.id === 'auth-head-register') {
+        openForm('register');
+        return;
+      }
+      if (t.id === 'auth-head-close') {
+        $('#auth-form').classList.add('hidden');
+        const stats = $('#auth-stats');
+        if (stats) {
+          stats.classList.add('hidden');
+          const caret = $('#auth-caret');
+          if (caret) caret.textContent = '?';
+        }
+        syncAuthOpen();
+        if (window.innerWidth <= 1199) {
+          const mc = $('#menu-screen');
+          if (mc) { mc.classList.remove('net-view'); mc.classList.remove('menu-open'); }
+          const np = $('#net-panel');
+          if (np) np.classList.add('hidden');
+          const rr = $('#mp-rooms');
+          if (rr) rr.classList.remove('hidden');
+        }
         return;
       }
       if (t.id === 'auth-submit') {
