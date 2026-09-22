@@ -67,7 +67,7 @@
     const u = getUser();
     if (u) {
       const rating = u.rating != null ? u.rating : 1000;
-      info.innerHTML = `
+      const summaryHtml = `
         <div class="auth-summary" id="auth-summary" title="Статистика (нажмите)">
           <span class="auth-name">${escapeHtmlA(u.name)}</span>
           <span class="auth-rating">★ ${rating}</span>
@@ -103,8 +103,8 @@
              </div>`;
       }
       statsHtml += '</div>';
-      let actions = statsHtml + (insideVk ? '' : '<button id="auth-logout" class="btn secondary">Выйти</button>');
-      guest.innerHTML = actions;
+      guest.innerHTML = summaryHtml;
+      info.innerHTML = statsHtml + (insideVk ? '' : '<button id="auth-logout" class="btn secondary">Выход</button>');
       syncAuthOpen();
     } else {
       info.textContent = '';
@@ -422,6 +422,40 @@
       if (rr) rr.classList.add('hidden');
     }
     openForm(gb.id === 'auth-login-btn' ? 'login' : 'register');
+
+  });
+
+  const topGuest = $('#auth-guest-actions');
+  if (topGuest) topGuest.addEventListener('click', e => {
+    const lead = e.target.closest('#auth-summary');
+    if (lead) {
+      const stats = $('#auth-stats');
+      if (stats) {
+        const show = stats.classList.contains('hidden');
+        stats.classList.toggle('hidden', !show);
+        const caret = $('#auth-caret');
+        if (caret) caret.textContent = show ? '▴' : '▾';
+        syncAuthOpen();
+      }
+      return;
+    }
+    const t = e.target.closest('button');
+    if (!t) return;
+    if (t.id === 'auth-stats-close') {
+      const stats = $('#auth-stats');
+      if (stats) {
+        stats.classList.add('hidden');
+        const caret = $('#auth-caret');
+        if (caret) caret.textContent = '▴';
+      }
+      syncAuthOpen();
+      return;
+    }
+    if (t.id === 'auth-logout') {
+      api('logout', { authToken: getToken() }).catch(() => {});
+      clearAuth();
+      render();
+    }
   });
 
   window.AUTH = { getToken, getUser };

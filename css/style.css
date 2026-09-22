@@ -380,7 +380,6 @@ body {
     padding: 14px;
   }
   #auth-guest-actions { flex: 1; flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
-  .auth-stats { width: 100%; }
   .auth-stats-head {
     display: flex; justify-content: space-between; align-items: center; gap: 10px;
     margin-bottom: 12px;
@@ -505,6 +504,7 @@ body {
   #sidebar {
     position: static; width: auto; margin-top: auto;
     border-radius: 12px; padding: 10px 12px;
+    background: transparent; border: none;
   }
   #sidebar h2 { margin-bottom: 6px; }
   #players { flex-direction: row; flex-wrap: wrap; gap: 8px; }
@@ -523,7 +523,12 @@ body {
   #hand { gap: 8px; height: calc(var(--s) * 2.4 + 10px); justify-content: center; }
 }
 
-.auth-stats { flex: 1 1 100%; margin-top: 8px; font-size: 13px; }
+.auth-stats { flex: 1 1 100%; margin: 8px 12px 16px; font-size: 13px; overflow-x: hidden; }
+.auth-stats-head {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  margin-bottom: 12px; padding: 0 6px;
+}
+.auth-stats-close { margin-right: 2px; }
 .auth-summary {
   display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none;
 }
@@ -535,7 +540,7 @@ body {
 .auth-rating { color: #ffd479; font-weight: bold; font-size: 18px; white-space: nowrap; }
 .auth-caret { color: var(--muted); font-size: 12px; }
 .as-line { display: flex; justify-content: space-between; gap: 12px; padding: 1.5px 0; color: #9a9ab0; }
-.as-line b { color: #eaeaf2; white-space: nowrap; }
+.as-line b { color: #eaeaf2; white-space: nowrap; max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
 .auth-stats-sub { font-size: 12px; color: #9a9ab0; }
 .tops-cols { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
 .tops-cols > div { flex: 1 1 240px; min-width: 220px; }
