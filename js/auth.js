@@ -61,7 +61,8 @@
   function render() {
     const info = $('#auth-info');
     if (!info) return;
-    const guest = $('#auth-guest-actions');
+    const guestPanel = $('#auth-guest-actions-panel');
+    const guest = (window.innerWidth <= 1199) ? $('#auth-guest-actions') : guestPanel;
     $('#auth-form').classList.add('hidden');
     const u = getUser();
     if (u) {
@@ -72,7 +73,8 @@
           <span class="auth-rating">★ ${rating}</span>
           <span class="auth-caret" id="auth-caret">▾</span>
         </div>`;
-      let statsHtml = '<div class="auth-stats hidden" id="auth-stats">';
+      let statsHtml = '<div class="auth-stats hidden" id="auth-stats">'
+        + '<div class="auth-stats-head"><span class="auth-stats-title">Статистика</span><button id="auth-stats-close" class="btn sm-btn secondary">✕ Закрыть</button></div>';
       if (u.stats) {
         const s = u.stats;
         const winRate = s.games > 0 ? Math.round((s.wins * 100) / s.games) : 0;
@@ -103,8 +105,9 @@
       statsHtml += '</div>';
       let actions = statsHtml + (insideVk ? '' : '<button id="auth-logout" class="btn secondary">Выйти</button>');
       guest.innerHTML = actions;
+      syncAuthOpen();
     } else {
-      info.textContent = 'Вы играете как гость. Войдите, чтобы закрепить имя.';
+      info.textContent = '';
       guest.innerHTML = `
         <button id="auth-login-btn" class="btn primary">Вход</button>
         <button id="auth-register-btn" class="btn secondary">Регистрация</button>`;
@@ -156,9 +159,20 @@
     }
   }
 
+  function syncAuthOpen() {
+    const b = $('#auth-block');
+    if (!b) return;
+    const stats = $('#auth-stats');
+    const form = $('#auth-form');
+    const open = (stats && !stats.classList.contains('hidden')) ||
+                 (form && !form.classList.contains('hidden'));
+    b.classList.toggle('open', !!open);
+  }
+
   function openForm(m) {
     mode = m;
     $('#auth-form').classList.remove('hidden');
+    syncAuthOpen();
     $('#auth-name-row').classList.toggle('hidden', mode !== 'register');
     $('#auth-login-row').classList.toggle('hidden', mode === 'register');
     $('#auth-email-row').classList.toggle('hidden', mode !== 'register');
@@ -183,15 +197,31 @@
         stats.classList.toggle('hidden', !show);
         const caret = $('#auth-caret');
         if (caret) caret.textContent = show ? '▴' : '▾';
+        syncAuthOpen();
       }
       return;
     }
-    const t = e.target.closest('button');
-    if (!t) return;
+  // Мобильный бэкдроп: клик вне .auth-panel закрывает раскрытый профиль
+  if (e.target.closest('#auth-block') && !e.target.closest('.auth-panel') &&
+      window.innerWidth <= 660) {
+    const stats = $('#auth-stats');
+    if (stats && !stats.classList.contains('hidden')) {
+      stats.classList.add('hidden');
+      const caret = $('#auth-caret');
+      if (caret) caret.textContent = '▸';
+    }
+    const form = $('#auth-form');
+    if (form) form.classList.add('hidden');
+    syncAuthOpen();
+    return;
+  }
+  const t = e.target.closest('button');
+  if (!t) return;
     try {
       if (t.id === 'auth-login-btn') {
         if (mode === 'login' && !$('#auth-form').classList.contains('hidden')) {
           $('#auth-form').classList.add('hidden');
+          syncAuthOpen();
           return;
         }
         openForm('login');
@@ -200,6 +230,7 @@
       if (t.id === 'auth-register-btn') {
         if (mode === 'register' && !$('#auth-form').classList.contains('hidden')) {
           $('#auth-form').classList.add('hidden');
+          syncAuthOpen();
           return;
         }
         openForm('register');
@@ -242,6 +273,17 @@
       }
       if (t.id === 'auth-ya') {
         await yaLogin();
+        return;
+      }
+      if (t.id === 'auth-stats-close') {
+        $('#auth-form').classList.add('hidden');
+        const stats = $('#auth-stats');
+        if (stats) {
+          stats.classList.add('hidden');
+          const caret = $('#auth-caret');
+          if (caret) caret.textContent = '▸';
+        }
+        syncAuthOpen();
         return;
       }
       if (t.id === 'auth-logout') {
@@ -351,6 +393,20 @@
     }
   }
 
+  document.addEventListener('click', async e => {
+    const gb = e.target.closest('#auth-login-btn, #auth-register-btn');
+    if (!gb) return;
+    if (window.innerWidth <= 1199) {
+      const mc = $('#menu-screen');
+      if (mc) { mc.classList.remove('net-view'); mc.classList.remove('menu-open'); }
+      const np = $('#net-panel');
+      if (np) np.classList.add('hidden');
+      const rr = $('#mp-rooms');
+      if (rr) rr.classList.add('hidden');
+    }
+    openForm(gb.id === 'auth-login-btn' ? 'login' : 'register');
+  });
+
   window.AUTH = { getToken, getUser };
 
   (async function init() {
@@ -376,4 +432,6 @@
     }
     vkCallback();
   })();
+  window.addEventListener('resize', () => render());
 })();
+

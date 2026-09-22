@@ -522,6 +522,7 @@ function refreshExitBtn() {
 }
 
 function showMenuScreen() {
+  document.getElementById('topbar')?.classList.remove('in-game');
   els.menuScreen.classList.remove('hidden');
   els.layout.classList.add('hidden');
   $('#status-bar').classList.add('hidden');
@@ -534,11 +535,20 @@ function showMenuScreen() {
 }
 
 function hideMenuScreen() {
+  document.getElementById('topbar')?.classList.add('in-game');
   els.menuScreen.classList.add('hidden');
+  els.menuScreen.classList.remove('menu-open');
   els.layout.classList.remove('hidden');
   $('#status-bar').classList.remove('hidden');
   refreshExitBtn();
 }
+
+$('#menu-burger').addEventListener('click', () => {
+  const ms = els.menuScreen;
+  ms.classList.remove('net-view');
+  $('#net-panel').classList.add('hidden');
+  ms.classList.toggle('menu-open');
+});
 
 $('#exit-btn').addEventListener('click', () => {
   if (MODE === 'mp' && MP.room) { MP.leave(); return; }
@@ -566,13 +576,6 @@ function showMainMenu() {
 function showSoloSetup() {
   els.overlayContent.innerHTML = `
     <h2>🤖 Одиночная игра</h2>
-    <p class="subtitle">«6 берёт!» — набери как можно меньше штрафных очков</p>
-    <div class="rules-short">
-      <p>У каждого игрока 10 карт. Каждый ход все выкладывают по одной карте, затем они вскрываются и раскладываются в 4 ряда по возрастанию — в ряд с минимальной разницей.</p>
-      <p>⚠️ <b>Шестой енот:</b> если ваша карта стала 6-й в ряду — вы забираете весь ряд себе.</p>
-      <p>⚠️ <b>Наименьшая карта:</b> если ваша карта меньше всех крайних — вы забираете любой ряд на выбор.</p>
-      <p>Кто набирает 66+ штрафных очков — проигрывает и становится «Повелителем Пончиков». Осторожно: карта №55 стоит сразу 7 пончиков! Кратные 10 — по 3, оканчивающиеся на 5 — по 2, остальные — по 1.</p>
-    </div>
     <label class="bot-picker">Соперников-ботов:
       <select id="bot-count">${[1, 2, 3, 4].map(n => `<option value="${n}"${n === 3 ? ' selected' : ''}>${n}</option>`).join('')}</select>
     </label>
@@ -716,6 +719,13 @@ $('#solo-btn').addEventListener('click', () => {
 $('#net-btn').addEventListener('click', () => {
   if (MP.room && MP.token) { MP.refreshRooms(); return; }
   $('#mp-error').textContent = '';
+  const ms = els.menuScreen;
+  if (window.matchMedia('(max-width: 1199px)').matches) {
+    const on = ms.classList.toggle('net-view');
+    ms.classList.add('menu-open');
+    $('#net-panel').classList.toggle('hidden', !on);
+    return;
+  }
   $('#net-panel').classList.toggle('hidden');
 });
 
@@ -831,6 +841,8 @@ async function createNetRoom(max) {
     MP.inMenuView = true;
     $('#net-btn').title = 'У вас уже есть комната';
     $('#net-panel').classList.add('hidden');
+    els.menuScreen.classList.remove('net-view');
+    els.menuScreen.classList.remove('menu-open');
     MP.startPoll(false);
     MP.startRoomList();
   } catch (e) {

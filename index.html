@@ -6,11 +6,13 @@
 <meta name="description" content="Еноты-агенты — быстрая карточная игра по мотивам «6 берёт!»: партии на 2–4 игрока онлайн, рейтинг place-Elo, зал славы и чат с антиматом.">
 <title>Еноты-агенты — карточная игра</title>
 <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
-<link rel="stylesheet" href="css/style.css?v=20260915a">
+<link rel="stylesheet" href="css/style.css?v=20260929a">
 </head>
 <body>
 <div id="app">
   <header id="topbar">
+  <button id="menu-burger" class="burger-btn" aria-label="menu"></button>
+    <div id="auth-guest-actions" class="auth-providers"></div>
     <h1>🦝 Еноты-агенты</h1>
     <div id="status-bar">
       <span id="round-info"></span>
@@ -38,8 +40,8 @@
     </div>
     <div id="mp-error" class="mp-error"></div>
     <div id="auth-block" class="menu-rooms">
+      <div id="auth-guest-actions-panel" class="auth-providers"></div>
       <div id="auth-info" class="auth-row">Загрузка...</div>
-      <div id="auth-guest-actions" class="auth-providers"></div>
       <form id="auth-form" class="hidden" autocomplete="off">
         <label class="menu-name" id="auth-name-row">Имя в игре
           <input id="auth-name" maxlength="64">
@@ -104,9 +106,9 @@
 </div>
 
 <script src="assets/vk-bridge.min.js?v=20260828a"></script>
-<script src="js/mp.js?v=20260910a"></script>
-<script src="js/game.js?v=20260909a"></script>
-<script src="js/tutorial.js?v=20260828a"></script>
-<script src="js/auth.js?v=20260914a"></script>
+<script src="js/mp.js?v=20260929a"></script>
+<script src="js/game.js?v=20260929a"></script>
+<script src="js/tutorial.js?v=20260929a"></script>
+<script src="js/auth.js?v=20260929a"></script>
 </body>
 </html>

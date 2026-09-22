@@ -28,7 +28,7 @@ body {
 
 #app { max-width: 1360px; margin: 0 auto; padding: 12px 18px 10px; }
 
-:root { --s: clamp(36px, calc((100vh - 245px) / 6.26), 100px); }
+:root { --s: clamp(36px, min(calc((100vh - 245px) / 6.26), calc((100vw - 440px) / 8.7)), 100px); }
 
 #topbar {
   display: flex; align-items: center; justify-content: space-between;
@@ -36,6 +36,17 @@ body {
 }
 
 #topbar h1 { font-size: 20px; letter-spacing: .5px; }
+
+#menu-burger {
+  display: none; align-items: center; justify-content: center;
+  font-size: 26px; line-height: 1; padding: 6px 12px;
+  background: rgba(255,255,255,.06); border: 1px solid var(--panel-border);
+  border-radius: 10px; cursor: pointer; color: var(--text);
+}
+#menu-burger::before {
+  content: ""; width: 20px; height: 13px;
+  background: repeating-linear-gradient(180deg, currentColor 0 2px, transparent 2px 5px);
+}
 
 #status-bar { display: flex; gap: 10px; }
 
@@ -105,7 +116,7 @@ body {
 }
 #banner.hidden { display: none; }
 
-#rows { display: flex; flex-direction: column; gap: 7px; }
+#rows { display: flex; flex-direction: column; gap: 14px; }
 
 .row {
   display: flex; align-items: center; gap: 10px;
@@ -196,7 +207,7 @@ body {
   background: var(--panel); border: 1px solid var(--panel-border);
   border-radius: 14px; padding: 8px 10px 10px;
 }
-#hand-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+#hand-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
 #hand-header h2 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
 
 .turn-timer {
@@ -328,6 +339,7 @@ body {
   position: fixed; top: 14px; right: 16px; z-index: 40;
   width: 380px; margin: 0;
 }
+#topbar.in-game #auth-block { display: none; }
 .auth-row { text-align: left; font-size: 13px; color: var(--muted); }
 .muted { opacity: .7; }
 .auth-providers {
@@ -343,11 +355,52 @@ body {
 .auth-providers .sm-btn { padding: 6px 10px; font-size: 13px; }
 #auth-form { margin-top: 12px; }
 #auth-form .menu-name { max-width: none; margin: 0 0 8px; }
-@media (max-width: 660px) {
+@media (max-width: 1199px) {
+  #topbar h1 { display: none; }
+  #topbar { gap: 8px; flex-wrap: nowrap; justify-content: space-between; }
   #auth-block {
-    position: static; width: auto; margin: 0 0 12px;
+    position: static; width: auto; margin: 0;
+    background: transparent; border: none; padding: 0;
+    flex: 0 1 auto; min-width: 0;
   }
+  .auth-summary { gap: 6px; min-width: 0; }
+  .auth-name { max-width: 40vw; font-size: 15px; }
+  #auth-block > .auth-panel { display: flex; align-items: center; gap: 10px; }
+  #auth-block.open {
+    position: fixed; inset: 0; z-index: 100;
+    background: #0c120e;
+    display: flex; flex-direction: column;
+  }
+  #auth-block.open .auth-panel {
+    background: transparent; border: none; border-radius: 0;
+    width: 100%; max-height: none; overflow-y: auto;
+    flex: 1; display: flex; flex-direction: column; text-align: left;
+    padding: 14px;
+  }
+  #auth-guest-actions { flex: 1; flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
+  .auth-stats { width: 100%; }
+  .auth-stats-head {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    margin-bottom: 12px;
+  }
+  .auth-stats-title { font-weight: 700; font-size: 17px; }
   .auth-row { text-align: center; }
+
+  #topbar { position: relative; z-index: 100; }
+  #topbar:not(.in-game) #menu-burger { display: inline-flex; }
+  #menu-screen .menu-top { display: none; }
+  #menu-screen.menu-open .menu-top { display: flex; }
+#menu-screen.net-view .menu-top { display: none !important; }
+#menu-screen.net-view #net-panel { display: flex; }
+#menu-screen.menu-open .menu-rooms { display: none !important; }
+#menu-screen.net-view .menu-rooms, #menu-screen.net-view #mp-rooms { display: none !important; }
+  #menu-screen #net-panel {
+    align-items: center; justify-content: center;
+    padding: 16px; flex-direction: column; margin: 0 0 14px;
+  }
+  .menu-actions { flex-direction: column; width: 100%; }
+  .menu-top { margin-bottom: 14px; }
+  #menu-screen { margin-top: 4px; }
 }
 
 #layout.in-lobby #sidebar,
@@ -430,10 +483,38 @@ body {
 .rm-empty { color: var(--muted); font-weight: 600; }
 
 @media (max-width: 980px) {
-      #layout { grid-template-columns: 1fr; }
-      #sidebar { position: static; width: auto; }
-  #chat-box { flex: none; min-height: 160px; max-height: 260px; }
-  #chat-log { min-height: 80px; }
+  #app { padding: 10px 12px 8px; }
+  :root { --s: clamp(34px, min(calc((100vh - 250px) / 8.0), calc((100vw - 36px) / 8.2)), 132px); }
+  #layout {
+    display: flex; flex-direction: column; gap: 8px;
+    grid-template-columns: 1fr;
+    width: 100%;
+    align-items: stretch;
+    min-height: calc(100vh - 112px);
+  }
+  /* Поле и рука — фиксированные размеры, не зависят от числа карт в руке */
+  #game-col { flex: none; width: 100%; min-width: 0; }
+  #table-wrap { flex: none; width: 100%; }
+  /* Игроки + чат прижаты к нижнему краю (в потоке, в конце колонки) */
+  #sidebar {
+    position: static; width: auto; margin-top: auto;
+    border-radius: 12px; padding: 10px 12px;
+  }
+  #sidebar h2 { margin-bottom: 6px; }
+  #players { flex-direction: row; flex-wrap: wrap; gap: 8px; }
+  /* Карточки игроков шире */
+  .opp { flex: 1 1 46%; min-width: 150px; padding: 10px 12px; }
+  #chat-box { margin-top: 8px; padding-top: 8px; flex: none; min-height: 0; max-height: 120px; }
+  #chat-log { min-height: 0; max-height: 70px; }
+  #rows { gap: 12px; flex: none; }
+  .row { min-height: calc(var(--s) * 1.6 + 12px); }
+  .row-score { min-width: calc(var(--s) * 0.9); }
+  .row-cards { flex: 1; }
+  .row .card.small { width: calc(var(--s) * 1.2); }
+  #rows { margin-top: 4px; }
+  #hand-header { margin-bottom: 18px; }
+  /* Рука — в два ряда, больше карты */
+  #hand { gap: 8px; height: calc(var(--s) * 2.4 + 10px); justify-content: center; }
 }
 
 .auth-stats { flex: 1 1 100%; margin-top: 8px; font-size: 13px; }
@@ -546,4 +627,211 @@ body {
 @keyframes tutBtnPulse {
   0%, 100% { box-shadow: 0 0 0 2px var(--ok, #7cc47f), 0 0 10px rgba(124, 196, 127, .5); }
   50% { box-shadow: 0 0 0 6px var(--ok, #7cc47f), 0 0 24px rgba(124, 196, 127, .9); }
+}
+@media (max-width: 500px) {
+  .room-table { display: block; width: 100%; max-width: 100%; overflow-x: hidden; }
+  .room-table tbody { display: block; width: 100%; max-width: 100%; }
+  .room-table thead, .room-table th { display: none; }
+  .room-table tbody.rr-group {
+    display: block; width: 100%; max-width: 100%; margin: 0 0 10px; padding: 12px 14px;
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.12);
+  }
+  .room-table tr.rr-head {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+    width: 100%; max-width: 100%; cursor: default;
+  }
+  .room-table tr.rr-head td {
+    min-width: 0; max-width: 100%; border-bottom: 0; padding: 6px 0;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .room-table tr.rr-head td:first-child {
+    flex: 1 1 100%; font-weight: 600; white-space: nowrap;
+  }
+  .room-table tr.rr-head td:first-child .rr-caret,
+  .room-table tr.rr-head td:first-child .rr-mine { display: none; }
+  .room-table tr.rr-head td:nth-child(2),
+  .room-table tr.rr-head td:nth-child(3) {
+    flex: 1 1 45%; white-space: nowrap;
+  }
+  .room-table tr.rr-head .rt-action { flex-basis: 100%; margin-top: 8px; }
+  .room-table tr.rr-head .rt-action .rr-join { width: 100%; }
+  .room-table tr.rr-members, .room-table .rr-members { display: none !important; }
+}
+
+/* auth: guest login/register buttons in one line */
+#auth-guest-actions, #auth-guest-actions .auth-providers {
+  display: flex; flex-wrap: nowrap; align-items: center; gap: 8px;
+}
+#auth-guest-actions .btn, #auth-guest-actions .auth-providers .btn {
+  flex: 1 1 auto; white-space: nowrap;
+}
+
+@media (max-width: 500px) {
+  #auth-guest-actions, #auth-guest-actions .auth-providers {
+    display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; width: 100%;
+  }
+  #auth-guest-actions .btn, #auth-guest-actions .auth-providers .btn { flex: 1 1 auto; }
+}
+
+/* HARD final: login/register buttons one line regardless of other rules */
+#auth-guest-actions {
+  display: flex !important; flex-direction: row !important;
+  flex-wrap: nowrap !important; align-items: center; gap: 6px; width: 100%;
+}
+#auth-guest-actions .btn {
+  flex: 1 1 auto !important; white-space: nowrap !important; margin: 0 !important;
+}
+@media (max-width: 500px) {
+  #auth-guest-actions { width: 100%; }
+  #auth-guest-actions, #auth-guest-actions .auth-providers {
+    display: flex !important; flex-direction: row !important;
+    flex-wrap: nowrap !important; align-items: center; gap: 6px;
+  }
+  #auth-guest-actions .btn, #auth-guest-actions .auth-providers .btn {
+    flex: 1 1 auto !important; white-space: nowrap !important;
+  }
+}
+
+
+/* auth-guest-actions one-line GLOBAL (login/register in one row everywhere) */
+#auth-guest-actions {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  width: auto;
+}
+#auth-guest-actions .auth-providers,
+#auth-guest-actions .auth-providers > div {
+  display: contents !important;
+}
+#auth-guest-actions .btn,
+#auth-guest-actions .auth-providers .btn {
+  flex: 0 1 auto !important;
+  width: auto !important;
+  white-space: nowrap !important;
+  margin: 0 !important;
+}
+#auth-guest-actions #auth-login-btn,
+#auth-guest-actions #auth-register-btn {
+  display: inline-flex !important;
+  flex: 1 1 auto !important;
+}
+
+
+/* HARD guarantee: login/register one line always */
+#auth-guest-actions,
+#auth-guest-actions > .btn,
+#auth-guest-actions .btn,
+#auth-guest-actions .auth-providers {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  width: auto !important;
+  min-width: 0 !important;
+  white-space: nowrap !important;
+}
+#auth-guest-actions { width: 100% !important; }
+#auth-guest-actions .btn {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  white-space: nowrap !important;
+  margin: 0 !important;
+}
+#auth-login-btn, #auth-register-btn { flex: 1 1 auto !important; }
+
+/* HARD: room join/leave buttons keep inside frame on small screens */
+.rt-action, .rr-group .rt-action {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+.rr-join, .rr-leave, #mp-leave,
+.rr-group .rt-action .btn {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+@media (max-width: 500px) {
+  .rr-group .rt-action { display: flex; flex-wrap: wrap; gap: 6px; }
+  .rr-group .rt-action .btn { flex: 1 1 100%; }
+}
+
+
+/* auth-guest-actions login/register smaller + slightly raised */
+#auth-guest-actions { margin-top: -4px !important; }
+#auth-guest-actions .btn,
+#auth-guest-actions .auth-providers .btn {
+  font-size: 12px !important; padding: 4px 10px !important;
+  line-height: 1.25 !important; border-radius: 7px !important;
+}
+
+
+/* DESKTOP: guest login/register INSIDE #auth-block panel, compact, TOP (above the auth form) */
+@media (min-width: 1280px) {
+  #auth-guest-actions-panel {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 6px !important;
+    width: 100% !important;
+    margin: 0 0 2px !important;
+    order: 0 !important;
+  }
+  #auth-guest-actions-panel .btn,
+  #auth-guest-actions-panel .auth-providers .btn {
+    font-size: 13px !important;
+    padding: 5px 12px !important;
+    border-radius: 8px !important;
+    line-height: 1.25 !important;
+    flex: 1 1 auto !important;
+    min-width: 80px !important;
+    max-width: 120px !important;
+    white-space: nowrap !important;
+  }
+  #topbar #auth-guest-actions { display: none !important; }
+}
+/* hide the mobile/topbar guest container on desktop */
+
+/* HD/FHD: auth login/register — SAME LINE as the title, flush to the TOP-RIGHT edge, NARROW buttons */
+
+/* MOBILE: login/register in the same row as the burger, clickable */
+@media (max-width: 1199px) {
+  #auth-guest-actions {
+    position: fixed !important;
+    top: 7px !important; right: 14px !important; left: auto !important;
+    z-index: 260 !important;
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 6px !important;
+    width: auto !important;
+    margin: 0 !important;
+    pointer-events: auto !important;
+  }
+  #auth-guest-actions .btn,
+  #auth-guest-actions .auth-providers .btn {
+    flex: 0 1 auto !important;
+    white-space: nowrap !important;
+    font-size: 13px !important;
+    padding: 9px 13px !important;
+    border-radius: 9px !important;
+    margin: 0 !important;
+    min-width: 56px !important;
+  }
+  #topbar #menu-burger { z-index: 270 !important; }
+  #auth-guest-actions-panel { display: none !important; }
 }
