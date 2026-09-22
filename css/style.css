@@ -303,7 +303,7 @@ body {
   background: rgba(255, 255, 255, .05); border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; }
 .rules-short p + p { margin-top: 8px; }
 
-.bot-picker { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 18px; font-weight: 600; }
+.bot-picker { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 0 auto 18px; font-weight: 600; width: max-content; max-width: 100%; flex-wrap: wrap; row-gap: 6px; }
 .bot-picker select {
   font: inherit; padding: 8px 12px; border-radius: 8px;
   background: #101812; color: var(--text); border: 1px solid var(--panel-border);
@@ -387,6 +387,10 @@ body {
   }
   .auth-stats-title { font-weight: 700; font-size: 17px; }
   .auth-row { text-align: center; }
+  .panel { padding: 10px 0 24px; overflow-x: hidden; }
+  .score-table th, .score-table td { padding-right: 4px; padding-left: 4px; }
+  .subtitle { overflow-wrap: anywhere; }
+  .score-table td:first-child { text-align: center; }
 
   #topbar { position: relative; z-index: 100; }
   #topbar:not(.in-game) #menu-burger { display: inline-flex; }
