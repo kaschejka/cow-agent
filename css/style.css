@@ -349,12 +349,16 @@ body {
   margin-top: 10px;
 }
 .auth-providers .btn { padding: 8px 12px; font-size: 14px; }
-.auth-link-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.14); }
+.auth-link-row { display: flex; flex-wrap: wrap; align-items: flex-start; flex-direction: column; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.14); }
 .auth-link-row input {
-  width: 120px; padding: 6px 10px; font-size: 14px;
+  width: 100%; padding: 6px 10px; font-size: 14px;
   border: 1px solid var(--panel-border); border-radius: 8px; background: var(--panel); color: inherit;
 }
 .auth-providers .sm-btn { padding: 6px 10px; font-size: 13px; }
+#auth-vk-link { background: var(--accent); color: #33230a; border-color: var(--accent); font-weight: 700; margin: 0; }
+#auth-vk-link:hover:not(:disabled) { filter: brightness(1.08); }
+#auth-vk-unlink { color: var(--danger); border-color: var(--danger); margin: 0; }
+#auth-vk-unlink:hover { background: rgba(239, 83, 80, .12); }
 #auth-form { margin-top: 12px; }
 #auth-form .menu-name { max-width: none; margin: 0 0 8px; }
 @media (max-width: 1199px) {
@@ -432,11 +436,12 @@ body {
   background: transparent; border: none; cursor: pointer; border-radius: 8px;
 }
 .icon-btn:hover { background: rgba(255,255,255,.08); }
-.my-room-bar {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+.my-room-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
   background: rgba(245, 184, 61, .1); border: 1px solid var(--accent);
   border-radius: 10px; padding: 11px 14px; margin-bottom: 12px; font-weight: 600; font-size: 16px;
 }
+.my-room-bar > span { min-width: 0; flex: 1 1 auto; }
+.my-room-bar .rr-leave { flex: 0 0 auto !important; width: auto !important; max-width: 100% !important; }
 .rr-mine { color: var(--accent); font-weight: 700; font-size: 14px; white-space: nowrap; }
 .menu-rooms {
   background: var(--panel); border: 1px solid var(--panel-border);
